@@ -7910,81 +7910,50 @@ attachMessageMenu(div, m, "channel", currentChannelId);
     chatDiv.scrollTop = chatDiv.scrollHeight;
     ws.send(JSON.stringify({ type: "mark_read", chatType: "channel", chatId: currentChannelId, msgId: m.id }));
 }
-</script>
 
-attachMessageMenu(div, m, "channel", currentChannelId);
-    div.ondblclick = () => { ws.send(JSON.stringify({ type: "reaction", chatType: "channel", id: m.id, reaction: "❤️" })); };
-    attachSwipeReply(div, m);
-    chatDiv.appendChild(div);
-    chatDiv.scrollTop = chatDiv.scrollHeight;
-    ws.send(JSON.stringify({ type: "mark_read", chatType: "channel", chatId: currentChannelId, msgId: m.id }));
-}
-</script>
+function connect() {
+    const proto = location.protocol === "https:" ? "wss://" : "ws://";
+    ws = new WebSocket(proto + location.host);
 
-<!-- НОВЫЙ СКРИПТ ПОДКЛЮЧЕНИЯ И КНОПОК -->
-<script>
-window.addEventListener("DOMContentLoaded", () => {
-    initAuthButtons();
-    ensureConnection();
-});
+    ws.onopen = () => {
+        console.log("Connected to server");
+        tryAutoLogin();
+    };
 
-setTimeout(() => {
-    initAuthButtons();
-    ensureConnection();
-}, 200);
+    ws.onclose = () => {
+        console.log("Disconnected, reconnecting...");
+        setTimeout(connect, 2000);
+    };
 
-function ensureConnection() {
-    if (!window.ws || window.ws.readyState === 3) {
-        const proto = location.protocol === "https:" ? "wss://" : "ws://";
-        window.ws = new WebSocket(proto + location.host);
-        window.ws.onopen = () => console.log("✅ WebSocket подключен из аварийного блока!");
-        window.ws.onerror = (e) => console.log("❌ Ошибка соединения:", e);
-    }
+    ws.onerror = (err) => {
+        console.error("WS error:", err);
+    };
+
+    ws.onmessage = (event) => {
+        const d = JSON.parse(event.data);
+        handleMessage(d);
+    };
 }
 
-function initAuthButtons() {
-    const sBtn = document.getElementById("authSwitchBtn");
-    const aBtn = document.getElementById("authActionBtn");
-    const aTitle = document.getElementById("authTitle");
-    const aError = document.getElementById("authError");
-    const aNick = document.getElementById("authNick");
-    const aPass = document.getElementById("authPassword");
-    const rem = document.getElementById("rememberMe");
+// Привязка кнопок авторизации
+authSwitchBtn.onclick = () => {
+    isLoginMode = !isLoginMode;
+    authTitle.textContent = isLoginMode ? "Добро пожаловать" : "Регистрация";
+    authActionBtn.textContent = isLoginMode ? "Войти" : "Зарегистрироваться";
+    authSwitchBtn.textContent = isLoginMode ? "Нет аккаунта? Регистрация" : "Уже есть аккаунт? Вход";
+    authError.textContent = "";
+};
 
-    let isLogin = true;
+authActionBtn.onclick = () => {
+    const nick = authNick.value.trim();
+    const password = authPassword.value.trim();
+    if (!nick || nick.length < 2) { authError.textContent = "Ник от 2 символов"; return; }
+    if (!password || password.length < 3) { authError.textContent = "Пароль от 3 символов"; return; }
+    if (!ws || ws.readyState !== 1) { authError.textContent = "Нет подключения к серверу"; return; }
+    ws.send(JSON.stringify({ type: isLoginMode ? "login" : "register", nick, password, remember: rememberMe.checked }));
+};
 
-    if (sBtn) {
-        sBtn.onclick = () => {
-            isLogin = !isLogin;
-            if (aTitle) aTitle.textContent = isLogin ? "Добро пожаловать" : "Регистрация";
-            if (aBtn) aBtn.textContent = isLogin ? "Войти" : "Зарегистрироваться";
-            sBtn.textContent = isLogin ? "Нет аккаунта? Регистрация" : "Уже есть аккаунт? Вход";
-            if (aError) aError.textContent = "";
-        };
-    }
-
-    if (aBtn) {
-        aBtn.onclick = () => {
-            ensureConnection();
-            const nick = aNick ? aNick.value.trim() : "";
-            const password = aPass ? aPass.value.trim() : "";
-            if (!nick || nick.length < 2) { if (aError) aError.textContent = "Ник от 2 символов"; return; }
-            if (!password || password.length < 3) { if (aError) aError.textContent = "Пароль от 3 символов"; return; }
-            
-            if (!window.ws || window.ws.readyState !== 1) { 
-                if (aError) aError.textContent = "Сервер недоступен (проверь, запущен ли node server.js)"; 
-                return; 
-            }
-
-            window.ws.send(JSON.stringify({ 
-                type: isLogin ? "login" : "register", 
-                nick, 
-                password, 
-                remember: rem ? rem.checked : false 
-            }));
-        };
-    }
-}
+connect();
 </script>
 </body>
 </html>
