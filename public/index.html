@@ -7963,15 +7963,19 @@ if (sBtn) {
 
 if (aBtn) {
     aBtn.onclick = () => {
+        const activeWs = window.ws || (typeof ws !== "undefined" ? ws : null);
         const nick = aNick ? aNick.value.trim() : "";
         const password = aPass ? aPass.value.trim() : "";
+        
         if (!nick || nick.length < 2) { if (aError) aError.textContent = "Ник от 2 символов"; return; }
         if (!password || password.length < 3) { if (aError) aError.textContent = "Пароль от 3 символов"; return; }
-        if (!window.ws || window.ws.readyState !== 1) { 
+        
+        if (!activeWs || activeWs.readyState !== 1) { 
             if (aError) aError.textContent = "Нет подключения к серверу"; 
             return; 
         }
-        window.ws.send(JSON.stringify({ 
+
+        activeWs.send(JSON.stringify({ 
             type: isLogin ? "login" : "register", 
             nick, 
             password, 
@@ -7984,3 +7988,4 @@ connect();
 </script>
 </body>
 </html>
+
