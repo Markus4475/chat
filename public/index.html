@@ -3482,40 +3482,17 @@ function connect() {
         if (d.type === "my_groups") { myGroups = d.groups; }
         if (d.type === "my_channels") { myChannels = d.channels; }
         if (d.type === "channel_update") {
-            if (!myChannels) myChannels = [];
-            const idx = myChannels.findIndex(c => c.id === d.channel.id);
-            if (idx !== -1) {
-                myChannels[idx] = d.channel;
-            } else {
-                myChannels.push(d.channel);
-            }
+            myChannels = myChannels.map(c => c.id === d.channel.id ? d.channel : c);
+            if (!myChannels.find(c => c.id === d.channel.id)) myChannels.push(d.channel);
             if (currentChannelId === d.channel.id) { currentChannel = d.channel; updateChannelUI(); }
             if (ciChannelId === d.channel.id) { ciChannelData = d.channel; renderChannelInfo(); }
-            refreshDirectoryIfOpen();
-        }
-        if (d.type === "channel_subscribed") {
-            if (!myChannels) myChannels = [];
-            let ch = myChannels.find(c => c.id === d.channelId);
-            if (ch) {
-                if (!ch.subscribers) ch.subscribers = [];
-                if (!ch.subscribers.includes(currentNick)) ch.subscribers.push(currentNick);
-            }
-            if (d.channel) {
-                const idx = myChannels.findIndex(c => c.id === d.channel.id);
-                if (idx !== -1) myChannels[idx] = d.channel;
-                else myChannels.push(d.channel);
-                currentChannel = d.channel;
-            }
-            if (currentChannelId === d.channelId) {
-                updateChannelUI();
-            }
             refreshDirectoryIfOpen();
         }
         if (d.type === "global_search_results") {
             renderMessageSearchResults(d.results);
         }
-        if (d.type === "search_user_result" || d.type === "user_search_result") {
-            renderUserSearchResult(d.results || []);
+        if (d.type === "search_user_result") {
+            renderUserSearchResult(d.results);
         }
         if (d.type === "blocked_users") {
             blockedUsersList = d.list || [];
@@ -3523,7 +3500,7 @@ function connect() {
             if (blockedScreen.classList.contains("open")) renderBlockedUsers();
         }
         if (d.type === "channel_comment_added" || d.type === "channel_comment_deleted") {
-            const channel = (myChannels || []).find(c => c.id === d.channelId);
+            const channel = myChannels.find(c => c.id === d.channelId);
             if (channel && channel.messages) {
                 const post = channel.messages.find(m => m.id === d.msgId);
                 if (post) {
@@ -3547,30 +3524,16 @@ function connect() {
             }
         }
         if (d.type === "channel_created") {
-            if (!myChannels) myChannels = [];
-            const idx = myChannels.findIndex(c => c.id === d.channel.id);
-            if (idx !== -1) myChannels[idx] = d.channel;
-            else myChannels.push(d.channel);
-            refreshDirectoryIfOpen();
+            myChannels.push(d.channel);
         }
         if (d.type === "channel_info") { currentChannel = d.channel; updateChannelUI(); }
-        if (d.type === "channel_msg") {
-            if (currentMode === "channel" && currentChannelId === d.channelId) {
-                addChannelMessage(d.data);
-            }
-            const ch = (myChannels || []).find(c => c.id === d.channelId);
-            if (ch) {
-                if (!ch.messages) ch.messages = [];
-                ch.messages.push(d.data);
-            }
-            refreshDirectoryIfOpen();
+        if (d.type === "channel_msg" && currentMode === "channel" && currentChannelId === d.channelId) {
+            addChannelMessage(d.data);
             return;
         }
         if (d.type === "channel_history" && currentMode === "channel" && currentChannelId === d.channelId) {
             loadingIndicator.classList.add("hidden");
-            chatDiv.innerHTML = "";
-            renderChannelMessages(d.data || []);
-            chatDiv.scrollTop = chatDiv.scrollHeight;
+            renderChannelMessages(d.data);
             return;
         }
         if (d.type === "delete") { 
@@ -3597,7 +3560,8 @@ function connect() {
             } else if (currentMode === "group" && currentGroupId && d.from) {
                 if (d.isTyping) showTyping(d.from); else hideTyping();
             }
-if (d.type === "profile_data") {
+        }
+        if (d.type === "profile_data") {
             updateProfileUI(d.profile, d.nick !== currentNick);
             profileTitle.textContent = d.nick === currentNick ? "Мой профиль" : `Профиль ${d.nick}`;
             if (d.reputation !== undefined) profileReputation.textContent = `⭐ Репутация: ${d.reputation}`;
@@ -3668,23 +3632,16 @@ if (d.type === "profile_data") {
         if (d.type === "private_pinned_list") {
             privatePinnedList = d.messages || [];
             if (pinnedMessagesPanel.classList.contains("open") && pinnedContext === "private") renderPinnedList();
-
         }
-
         if (d.type === "scheduled_message") {
-
             scheduledMessages.push(d.data);
-
             alert(`📅 Сообщение запланировано на ${new Date(d.data.scheduledTime).toLocaleString()}`);
-
         }
-
-if (d.type === "translation") {
+        if (d.type === "translation") {
             translatedText.textContent = d.translatedText;
         }
     };
 }
-
 connect();
 
 // ============================================================
@@ -3792,48 +3749,29 @@ function switchToGroup(groupId) {
 }
 
 function switchToChannel(channelId) {
-    // 1. Автоматически отправляем запрос на подписку
-    if (ws && ws.readyState === 1) {
-        ws.send(JSON.stringify({ type: "subscribe_channel", channelId }));
-    }
-
-    // 2. Сброс поля ввода и ответов
-    msgInput.value = "";
+    msgInput.value = ""; // очищаем ввод при выходе из чата — независимо от того, отправлено или нет
     replyToMsg = null;
-    const replyBanner = document.getElementById("replyBanner");
-    if (replyBanner) replyBanner.classList.add("hidden");
-
-    // 3. Установка текущего режима чата
+    document.getElementById("replyBanner").classList.add("hidden");
     currentMode = "channel";
     currentChannelId = channelId;
     currentPrivateWith = "";
     currentGroupId = null;
-
-    // 4. Настройка видимости кнопок в интерфейсе
-    if (modeBar) modeBar.classList.remove("hidden");
-    if (inviteBtn) inviteBtn.classList.add("hidden");
-    if (groupMembersBtn) groupMembersBtn.classList.add("hidden");
-    if (groupSettingsBtn) groupSettingsBtn.classList.add("hidden");
-    if (pinnedBtn) pinnedBtn.classList.add("hidden");
-    if (callButtons) callButtons.classList.add("hidden");
-    if (backBtn) backBtn.classList.remove("hidden");
-
-    const currentChannel = (myChannels || []).find(c => c.id === channelId);
-    if (modeTitle) modeTitle.textContent = `📣 ${currentChannel ? currentChannel.name : "Канал"}`;
-    if (navCenter) navCenter.textContent = currentChannel?.name || "Канал";
-
+    modeBar.classList.remove("hidden");
+    inviteBtn.classList.add("hidden");
+    groupMembersBtn.classList.add("hidden");
+    groupSettingsBtn.classList.add("hidden");
+    pinnedBtn.classList.add("hidden");
+    callButtons.classList.add("hidden");
+    backBtn.classList.remove("hidden");
+    modeTitle.textContent = `📣 ${currentChannel ? currentChannel.name : "Канал"}`;
     chatDiv.innerHTML = "";
-    if (loadingIndicator) loadingIndicator.classList.remove("hidden");
-
-    // 5. Запрос истории сообщений и инфо о канале
+    loadingIndicator.classList.remove("hidden");
     if (ws && ws.readyState === 1) {
         ws.send(JSON.stringify({ type: "get_channel_history", channelId }));
         ws.send(JSON.stringify({ type: "get_channel_info", channelId }));
     }
-
-    if (typeof clearUnread === "function") {
-        clearUnread(`channel_${channelId}`);
-    }
+    clearUnread(`channel_${channelId}`);
+    navCenter.textContent = currentChannel?.name || "Канал";
 }
 
 function updateGroupUI() {
@@ -4441,19 +4379,18 @@ menuCreateGroup.onclick = () => {
 
 menuCreateChannel.onclick = () => {
     menuPanel.classList.remove("open");
+    if (!isDima()) {
+        alert("❌ Только администратор (Дима) может создавать каналы");
+        return;
+    }
     const name = prompt("Введите название канала:");
     if (name && name.trim()) {
-        const isPrivate = confirm("Сделать канал приватным?\n\n• ОК — Приватный (вход только по 15-значному коду)\n• Отмена — Публичный (виден всем в поиске)");
         if (ws && ws.readyState === 1) {
-            ws.send(JSON.stringify({ 
-                type: "create_channel", 
-                name: name.trim(),
-                isPrivate: Boolean(isPrivate)
-            }));
+            ws.send(JSON.stringify({ type: "create_channel", name: name.trim() }));
         }
     }
 };
-    
+
 menuBackup.onclick = () => {
     menuPanel.classList.remove("open");
     const data = {
@@ -6745,21 +6682,18 @@ function renderDirectory(filter) {
     const q = (filter || "").toLowerCase().trim();
     let html = "";
 
-    // 1. Избранное
     if (!q || "избранное saved favorites 收藏".includes(q)) {
         const preview = getLastChatPreview("private", currentNick);
         const savedWord = currentUiLang === 'ru' ? "Избранное" : currentUiLang === 'zh' ? "收藏" : "Saved Messages";
         html += directoryItemHTML("⭐", savedWord, preview ? preview.text : "", `openDirectoryChat('contact','${dirEsc(currentNick)}')`, getUnreadCount(`private_${currentNick}`), preview ? preview.time : "");
     }
 
-    // 2. Общий чат
     if (!q || tr("dirGeneralChat").toLowerCase().includes(q) || "общий чат общее public general".includes(q)) {
         const preview = getLastChatPreview("public", "public");
         const sub = preview ? preview.text : `${usersOnline.length} ${currentUiLang === 'ru' ? 'онлайн' : currentUiLang === 'zh' ? '在线' : 'online'}`;
         html += directoryItemHTML("🌐", tr("dirGeneralChat"), sub, `openDirectoryChat('public')`, getUnreadCount("public"), preview ? preview.time : "");
     }
 
-    // 3. Группы
     const groupsList = (myGroups || []).filter(g => !q || g.name.toLowerCase().includes(q));
     if (groupsList.length) {
         html += `<div class="dir-section">${tr("dirSectionGroups")}</div>`;
@@ -6772,60 +6706,52 @@ function renderDirectory(filter) {
         });
     }
 
-    // 4. Каналы (приватные находятся ТОЛЬКО по точному 15-значному коду, публичные — по имени или коду)
-    const channelsList = (myChannels || []).filter(c => {
-        const isSubscribed = Array.isArray(c.subscribers) && c.subscribers.includes(currentNick);
-        if (!q) return isSubscribed;
-
-        const isExactCode = c.code && String(c.code).trim() === q;
-        const matchesName = !c.isPrivate && c.name && c.name.toLowerCase().includes(q);
-
-        return isExactCode || matchesName;
-    });
-
+    const channelsList = (myChannels || []).filter(c => c.subscribers?.includes(currentNick) && (!q || c.name.toLowerCase().includes(q)));
     if (channelsList.length) {
         html += `<div class="dir-section">${tr("dirSectionChannels")}</div>`;
         channelsList.forEach(c => {
             const lastMsg = c.messages && c.messages.length ? c.messages[c.messages.length - 1] : null;
             const subsWord = currentUiLang === 'ru' ? 'подписчиков' : currentUiLang === 'zh' ? '订阅者' : 'subscribers';
-            const sub = c.code ? `Код: ${c.code} · ${c.subscribers?.length || 0} ${subsWord}` : `${c.subscribers?.length || 0} ${subsWord}`;
+            const sub = lastMsg ? (lastMsg.text || "📎") : `${c.subscribers?.length || 0} ${subsWord}`;
             const time = lastMsg ? formatTime(lastMsg.time) : "";
-            const lockIcon = c.isPrivate ? " 🔒" : "";
-            html += directoryItemHTML("📣", c.name + lockIcon, sub, `openDirectoryChat('channel','${dirEsc(c.id)}')`, getUnreadCount(`channel_${c.id}`), time);
+            html += directoryItemHTML("📣", c.name, sub, `openDirectoryChat('channel','${dirEsc(c.id)}')`, getUnreadCount(`channel_${c.id}`), time);
         });
     }
 
-    // 5. Диалоги (без поиска видны ТОЛЬКО те, с кем реально есть история переписки)
+    // Обычные пользователи не видят список всех подряд — только тех, с кем
+    // уже есть переписка, и тех, кто сейчас онлайн. У Димы — полный список.
     const historicalContacts = (myLastChats || []).filter(c => c.chatType === "private").map(c => c.chatId);
-    const contactsSource = isDima() ? (allUsers || []) : [...new Set(historicalContacts)];
+    const contactsSource = isDima() ? (allUsers || []) : [...new Set([...(allUsers || []), ...historicalContacts])];
     const contactsList = contactsSource.filter(u => u !== currentNick && (!q || u.toLowerCase().includes(q)));
-
     if (contactsList.length) {
         html += `<div class="dir-section">${tr("dirSectionContacts")}</div>`;
+        // Сначала те, с кем уже есть переписка (свежее — выше), потом остальные контакты
         const withHistory = [];
+        const withoutHistory = [];
         contactsList.forEach(u => {
             const preview = getLastChatPreview("private", u);
-            // Если есть история или это админ Дима
-            if (preview || isDima()) {
-                withHistory.push({ u, preview: preview || { text: usersOnline.includes(u) ? tr("statusOnline") : tr("statusOffline"), time: "" } });
-            }
+            if (preview) withHistory.push({ u, preview }); else withoutHistory.push(u);
         });
-
         withHistory.sort((a, b) => {
             const ea = (myLastChats || []).find(c => c.chatType === "private" && c.chatId === a.u);
             const eb = (myLastChats || []).find(c => c.chatType === "private" && c.chatId === b.u);
             return (eb?.timestamp || 0) - (ea?.timestamp || 0);
         });
-
         withHistory.forEach(({ u, preview }) => {
             html += directoryItemHTML(u.charAt(0).toUpperCase(), u, preview.text, `openDirectoryChat('contact','${dirEsc(u)}')`, getUnreadCount(`private_${u}`), preview.time);
         });
+        withoutHistory.forEach(u => {
+            const online = usersOnline.includes(u);
+            const statusWord = online ? tr("statusOnline") : tr("statusOffline");
+            html += directoryItemHTML(u.charAt(0).toUpperCase(), u, statusWord, `openDirectoryChat('contact','${dirEsc(u)}')`, getUnreadCount(`private_${u}`));
+        });
     }
 
-    // 6. Поиск конкретного человека по нику или телефону через сервер
+    // Поиск конкретного человека по нику (для всех, кроме Димы — только точное
+    // совпадение, сервер сам это ограничивает) — не браузинг, а точечный поиск
     const searchSection = document.createElement("div");
     searchSection.id = "dirUserSearchSection";
-    if (q && q.length >= 2) {
+    if (!isDima() && q && q.length >= 2) {
         if (userSearchDebounce) clearTimeout(userSearchDebounce);
         userSearchDebounce = setTimeout(() => {
             if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: "search_user", query: q }));
@@ -6839,15 +6765,12 @@ function renderDirectory(filter) {
 function renderUserSearchResult(results) {
     const section = document.getElementById("dirUserSearchSection");
     if (!section) return;
-    const known = new Set(Array.from(directoryBody.querySelectorAll(".dir-item")).map(el => el.dataset?.name));
+    const known = new Set(Array.from(directoryBody.querySelectorAll(".dir-item")).map(el => el.dataset.name));
     const fresh = (results || []).filter(r => r.nick !== currentNick && !known.has(r.nick));
     if (fresh.length === 0) { section.innerHTML = ""; return; }
-    
-    let html = `<div class="dir-section">🔍 Найдено по запросу</div>`;
+    let html = `<div class="dir-section">🔍 Найдено по нику</div>`;
     fresh.forEach(r => {
-        const status = r.online ? tr("statusOnline") : tr("statusOffline");
-        const phoneDesc = r.phone ? ` · 📞 ${r.phone}` : "";
-        html += directoryItemHTML(r.nick.charAt(0).toUpperCase(), r.nick, status + phoneDesc, `openDirectoryChat('contact','${dirEsc(r.nick)}')`);
+        html += directoryItemHTML(r.nick.charAt(0).toUpperCase(), r.nick, r.online ? tr("statusOnline") : tr("statusOffline"), `openDirectoryChat('contact','${dirEsc(r.nick)}')`);
     });
     section.innerHTML = html;
 }
@@ -6873,6 +6796,8 @@ if (dirSearchInput) dirSearchInput.addEventListener("input", () => {
     dirSearchDebounce = setTimeout(() => renderDirectory(dirSearchInput.value), 150);
 });
 if (dirMoreBtn) dirMoreBtn.onclick = () => {
+    // Полный список действий (создание канала, тема, статистика и т.д.) —
+    // ничего не удалено, просто перенесено на один уровень глубже
     closeDirectory();
     menuPanel.classList.add("open");
     updateMenuUI();
@@ -7781,7 +7706,7 @@ function addChannelMessage(m) {
         musicDiv.onclick = () => { const audio = new Audio(m.music.url); playAudioExclusive(audio); };
         div.appendChild(musicDiv);
     }
-   if (m.voice) {
+    if (m.voice) {
         const voiceDiv = document.createElement("div");
         voiceDiv.className = "voice-note";
         const audio = new Audio(m.voice);
@@ -7903,89 +7828,13 @@ function addChannelMessage(m) {
     };
     div.appendChild(commentsBtn);
     
-attachMessageMenu(div, m, "channel", currentChannelId);
+    attachMessageMenu(div, m, "channel", currentChannelId);
     div.ondblclick = () => { ws.send(JSON.stringify({ type: "reaction", chatType: "channel", id: m.id, reaction: "❤️" })); };
     attachSwipeReply(div, m);
     chatDiv.appendChild(div);
     chatDiv.scrollTop = chatDiv.scrollHeight;
     ws.send(JSON.stringify({ type: "mark_read", chatType: "channel", chatId: currentChannelId, msgId: m.id }));
 }
-}
-
-// Принудительное подключение к Render и инициализация кнопок
-function connect() {
-    const proto = location.protocol === "https:" ? "wss://" : "ws://";
-    window.ws = new WebSocket(proto + location.host);
-
-    window.ws.onopen = () => {
-        console.log("Connected to server");
-        if (typeof tryAutoLogin === "function") tryAutoLogin();
-    };
-
-    window.ws.onclose = () => {
-        console.log("Disconnected, reconnecting...");
-        setTimeout(connect, 2000);
-    };
-
-    window.ws.onerror = (err) => {
-        console.error("WS error:", err);
-    };
-
-    window.ws.onmessage = (event) => {
-        try {
-            const d = JSON.parse(event.data);
-            if (typeof handleMessage === "function") handleMessage(d);
-        } catch (e) {
-            console.error("Parse error:", e);
-        }
-    };
-}
-
-const sBtn = document.getElementById("authSwitchBtn");
-const aBtn = document.getElementById("authActionBtn");
-const aTitle = document.getElementById("authTitle");
-const aError = document.getElementById("authError");
-const aNick = document.getElementById("authNick");
-const aPass = document.getElementById("authPassword");
-const rem = document.getElementById("rememberMe");
-
-let isLogin = true;
-
-if (sBtn) {
-    sBtn.onclick = () => {
-        isLogin = !isLogin;
-        if (aTitle) aTitle.textContent = isLogin ? "Добро пожаловать" : "Регистрация";
-        if (aBtn) aBtn.textContent = isLogin ? "Войти" : "Зарегистрироваться";
-        sBtn.textContent = isLogin ? "Нет аккаунта? Регистрация" : "Уже есть аккаунт? Вход";
-        if (aError) aError.textContent = "";
-    };
-}
-
-if (aBtn) {
-    aBtn.onclick = () => {
-        const activeWs = window.ws || (typeof ws !== "undefined" ? ws : null);
-        const nick = aNick ? aNick.value.trim() : "";
-        const password = aPass ? aPass.value.trim() : "";
-        
-        if (!nick || nick.length < 2) { if (aError) aError.textContent = "Ник от 2 символов"; return; }
-        if (!password || password.length < 3) { if (aError) aError.textContent = "Пароль от 3 символов"; return; }
-        
-        if (!activeWs || activeWs.readyState !== 1) { 
-            if (aError) aError.textContent = "Нет подключения к серверу"; 
-            return; 
-        }
-
-        activeWs.send(JSON.stringify({ 
-            type: isLogin ? "login" : "register", 
-            nick, 
-            password, 
-            remember: rem ? rem.checked : false 
-        }));
-    };
-}
-
-connect();
 </script>
 </body>
 </html>
-
