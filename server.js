@@ -523,32 +523,16 @@ function kickExistingSession(nick) {
 // ============================================================
 
 function checkIPBlock(ip) {
-    if (ipBlockedUntil.has(ip)) {
-        if (Date.now() < ipBlockedUntil.get(ip)) {
-            return true;
-        } else {
-            ipBlockedUntil.delete(ip);
-            ipAttempts.delete(ip);
-        }
-    }
     return false;
 }
 
 function recordIPAttempt(ip) {
-    if (!ipAttempts.has(ip)) ipAttempts.set(ip, 0);
-    ipAttempts.set(ip, ipAttempts.get(ip) + 1);
-    if (ipAttempts.get(ip) >= 5) {
-        ipBlockedUntil.set(ip, Date.now() + 5 * 60 * 1000);
-        return true;
-    }
     return false;
 }
 
 function resetIPAttempts(ip) {
-    ipAttempts.delete(ip);
-    ipBlockedUntil.delete(ip);
+    // ничего не делаем
 }
-
 // ============================================================
 // ============================================================
 // ГРУППЫ — РАСШИРЕННЫЕ ФУНКЦИИ
