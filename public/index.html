@@ -7912,14 +7912,35 @@ attachMessageMenu(div, m, "channel", currentChannelId);
 }
 </script>
 
-<!-- ОТДЕЛЬНЫЙ ИЗОЛИРОВАННЫЙ СКРИПТ ДЛЯ КНОПОК -->
+attachMessageMenu(div, m, "channel", currentChannelId);
+    div.ondblclick = () => { ws.send(JSON.stringify({ type: "reaction", chatType: "channel", id: m.id, reaction: "❤️" })); };
+    attachSwipeReply(div, m);
+    chatDiv.appendChild(div);
+    chatDiv.scrollTop = chatDiv.scrollHeight;
+    ws.send(JSON.stringify({ type: "mark_read", chatType: "channel", chatId: currentChannelId, msgId: m.id }));
+}
+</script>
+
+<!-- НОВЫЙ СКРИПТ ПОДКЛЮЧЕНИЯ И КНОПОК -->
 <script>
 window.addEventListener("DOMContentLoaded", () => {
     initAuthButtons();
+    ensureConnection();
 });
 
-// На случай, если DOM уже загружен
-setTimeout(initAuthButtons, 100);
+setTimeout(() => {
+    initAuthButtons();
+    ensureConnection();
+}, 200);
+
+function ensureConnection() {
+    if (!window.ws || window.ws.readyState === 3) {
+        const proto = location.protocol === "https:" ? "wss://" : "ws://";
+        window.ws = new WebSocket(proto + location.host);
+        window.ws.onopen = () => console.log("✅ WebSocket подключен из аварийного блока!");
+        window.ws.onerror = (e) => console.log("❌ Ошибка соединения:", e);
+    }
+}
 
 function initAuthButtons() {
     const sBtn = document.getElementById("authSwitchBtn");
@@ -7944,11 +7965,17 @@ function initAuthButtons() {
 
     if (aBtn) {
         aBtn.onclick = () => {
+            ensureConnection();
             const nick = aNick ? aNick.value.trim() : "";
             const password = aPass ? aPass.value.trim() : "";
             if (!nick || nick.length < 2) { if (aError) aError.textContent = "Ник от 2 символов"; return; }
             if (!password || password.length < 3) { if (aError) aError.textContent = "Пароль от 3 символов"; return; }
-            if (!window.ws || window.ws.readyState !== 1) { if (aError) aError.textContent = "Нет подключения к серверу"; return; }
+            
+            if (!window.ws || window.ws.readyState !== 1) { 
+                if (aError) aError.textContent = "Сервер недоступен (проверь, запущен ли node server.js)"; 
+                return; 
+            }
+
             window.ws.send(JSON.stringify({ 
                 type: isLogin ? "login" : "register", 
                 nick, 
