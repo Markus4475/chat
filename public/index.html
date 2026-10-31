@@ -6706,7 +6706,7 @@ function renderDirectory(filter) {
         });
     }
 
-    const channelsList = (myChannels || []).filter(c => c.subscribers?.includes(currentNick) && (!q || c.name.toLowerCase().includes(q)));
+    const channelsList = (myChannels || []).filter(c => !q || c.name.toLowerCase().includes(q));
     if (channelsList.length) {
         html += `<div class="dir-section">${tr("dirSectionChannels")}</div>`;
         channelsList.forEach(c => {
