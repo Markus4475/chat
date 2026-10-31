@@ -949,9 +949,17 @@ function createChannel(name, creator, isPrivate = false) {
 }
 
 function subscribeToChannel(channelId, nick) {
-    if (!channels[channelId] || channels[channelId].subscribers.includes(nick)) return false;
-    channels[channelId].subscribers.push(nick);
-    saveChannels();
+    if (!channels[channelId]) return false;
+    if (!channels[channelId].subscribers) channels[channelId].subscribers = [];
+
+    // Если подписчик новый — добавляем и сохраняем
+    if (!channels[channelId].subscribers.includes(nick)) {
+        channels[channelId].subscribers.push(nick);
+        saveChannels();
+        console.log(`👤 ${nick} подписался на канал "${channels[channelId].name}"`);
+    }
+
+    // Всегда рассылаем обновление, чтобы клиент обновил статус и списки
     broadcast({ type: "channel_update", channel: channels[channelId] });
     return true;
 }
@@ -1063,7 +1071,7 @@ function sendChannelMessage(channelId, from, msgData) {
     if (channels[channelId].messages.length > 500) {
         channels[channelId].messages = channels[channelId].messages.slice(-500);
     }
-    for (const sub of channels[channelId].subscribers) {
+    for (const sub of (channels[channelId].subscribers || [])) {
         sendToUser(sub, { type: "channel_msg", channelId, data: m });
     }
     saveChannels();
@@ -2156,10 +2164,19 @@ wss.on("connection", (ws) => {
             return;
         }
 
-        if (msg.type === "subscribe_channel") {
+       if (msg.type === "subscribe_channel") {
             if (subscribeToChannel(msg.channelId, currentUser)) {
-                ws.send(JSON.stringify({ type: "channel_subscribed", channelId: msg.channelId }));
-                broadcast({ type: "channel_update", channel: channels[msg.channelId] });
+                ws.send(JSON.stringify({ 
+                    type: "channel_subscribed", 
+                    channelId: msg.channelId,
+                    channel: channels[msg.channelId]
+                }));
+                // Сразу передаём актуальные посты новому подписчику
+                ws.send(JSON.stringify({
+                    type: "channel_history",
+                    channelId: msg.channelId,
+                    data: (channels[msg.channelId] && channels[msg.channelId].messages) || []
+                }));
             }
             return;
         }
@@ -2178,7 +2195,7 @@ wss.on("connection", (ws) => {
                 ws.send(JSON.stringify({
                     type: "channel_history",
                     channelId: msg.channelId,
-                    data: channels[msg.channelId].messages
+                    data: channels[msg.channelId].messages || []
                 }));
             }
             return;
