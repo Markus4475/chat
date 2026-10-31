@@ -7903,12 +7903,13 @@ function addChannelMessage(m) {
     };
     div.appendChild(commentsBtn);
     
-  attachMessageMenu(div, m, "channel", currentChannelId);
+attachMessageMenu(div, m, "channel", currentChannelId);
     div.ondblclick = () => { ws.send(JSON.stringify({ type: "reaction", chatType: "channel", id: m.id, reaction: "❤️" })); };
     attachSwipeReply(div, m);
     chatDiv.appendChild(div);
     chatDiv.scrollTop = chatDiv.scrollHeight;
     ws.send(JSON.stringify({ type: "mark_read", chatType: "channel", chatId: currentChannelId, msgId: m.id }));
+}
 }
 
 // Принудительное подключение к Render и инициализация кнопок
