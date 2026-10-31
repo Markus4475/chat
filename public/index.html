@@ -3597,12 +3597,10 @@ function connect() {
             } else if (currentMode === "group" && currentGroupId && d.from) {
                 if (d.isTyping) showTyping(d.from); else hideTyping();
             }
-        }
-        if (d.type === "profile_data") {
+if (d.type === "profile_data") {
             updateProfileUI(d.profile, d.nick !== currentNick);
             profileTitle.textContent = d.nick === currentNick ? "Мой профиль" : `Профиль ${d.nick}`;
             if (d.reputation !== undefined) profileReputation.textContent = `⭐ Репутация: ${d.reputation}`;
-        }
         }
         if (d.type === "reaction_update") { updateReactionUI(d.id, d.from, d.reaction, d.remove); }
         if (d.type === "read_update") { updateReadStatus(d.msgId, d.readBy); }
