@@ -3482,17 +3482,40 @@ function connect() {
         if (d.type === "my_groups") { myGroups = d.groups; }
         if (d.type === "my_channels") { myChannels = d.channels; }
         if (d.type === "channel_update") {
-            myChannels = myChannels.map(c => c.id === d.channel.id ? d.channel : c);
-            if (!myChannels.find(c => c.id === d.channel.id)) myChannels.push(d.channel);
+            if (!myChannels) myChannels = [];
+            const idx = myChannels.findIndex(c => c.id === d.channel.id);
+            if (idx !== -1) {
+                myChannels[idx] = d.channel;
+            } else {
+                myChannels.push(d.channel);
+            }
             if (currentChannelId === d.channel.id) { currentChannel = d.channel; updateChannelUI(); }
             if (ciChannelId === d.channel.id) { ciChannelData = d.channel; renderChannelInfo(); }
+            refreshDirectoryIfOpen();
+        }
+        if (d.type === "channel_subscribed") {
+            if (!myChannels) myChannels = [];
+            let ch = myChannels.find(c => c.id === d.channelId);
+            if (ch) {
+                if (!ch.subscribers) ch.subscribers = [];
+                if (!ch.subscribers.includes(currentNick)) ch.subscribers.push(currentNick);
+            }
+            if (d.channel) {
+                const idx = myChannels.findIndex(c => c.id === d.channel.id);
+                if (idx !== -1) myChannels[idx] = d.channel;
+                else myChannels.push(d.channel);
+                currentChannel = d.channel;
+            }
+            if (currentChannelId === d.channelId) {
+                updateChannelUI();
+            }
             refreshDirectoryIfOpen();
         }
         if (d.type === "global_search_results") {
             renderMessageSearchResults(d.results);
         }
-        if (d.type === "search_user_result") {
-            renderUserSearchResult(d.results);
+        if (d.type === "search_user_result" || d.type === "user_search_result") {
+            renderUserSearchResult(d.results || []);
         }
         if (d.type === "blocked_users") {
             blockedUsersList = d.list || [];
@@ -3500,7 +3523,7 @@ function connect() {
             if (blockedScreen.classList.contains("open")) renderBlockedUsers();
         }
         if (d.type === "channel_comment_added" || d.type === "channel_comment_deleted") {
-            const channel = myChannels.find(c => c.id === d.channelId);
+            const channel = (myChannels || []).find(c => c.id === d.channelId);
             if (channel && channel.messages) {
                 const post = channel.messages.find(m => m.id === d.msgId);
                 if (post) {
@@ -3524,16 +3547,30 @@ function connect() {
             }
         }
         if (d.type === "channel_created") {
-            myChannels.push(d.channel);
+            if (!myChannels) myChannels = [];
+            const idx = myChannels.findIndex(c => c.id === d.channel.id);
+            if (idx !== -1) myChannels[idx] = d.channel;
+            else myChannels.push(d.channel);
+            refreshDirectoryIfOpen();
         }
         if (d.type === "channel_info") { currentChannel = d.channel; updateChannelUI(); }
-        if (d.type === "channel_msg" && currentMode === "channel" && currentChannelId === d.channelId) {
-            addChannelMessage(d.data);
+        if (d.type === "channel_msg") {
+            if (currentMode === "channel" && currentChannelId === d.channelId) {
+                addChannelMessage(d.data);
+            }
+            const ch = (myChannels || []).find(c => c.id === d.channelId);
+            if (ch) {
+                if (!ch.messages) ch.messages = [];
+                ch.messages.push(d.data);
+            }
+            refreshDirectoryIfOpen();
             return;
         }
         if (d.type === "channel_history" && currentMode === "channel" && currentChannelId === d.channelId) {
             loadingIndicator.classList.add("hidden");
-            renderChannelMessages(d.data);
+            chatDiv.innerHTML = "";
+            renderChannelMessages(d.data || []);
+            chatDiv.scrollTop = chatDiv.scrollHeight;
             return;
         }
         if (d.type === "delete") { 
@@ -3565,6 +3602,7 @@ function connect() {
             updateProfileUI(d.profile, d.nick !== currentNick);
             profileTitle.textContent = d.nick === currentNick ? "Мой профиль" : `Профиль ${d.nick}`;
             if (d.reputation !== undefined) profileReputation.textContent = `⭐ Репутация: ${d.reputation}`;
+        }
         }
         if (d.type === "reaction_update") { updateReactionUI(d.id, d.from, d.reaction, d.remove); }
         if (d.type === "read_update") { updateReadStatus(d.msgId, d.readBy); }
