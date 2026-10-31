@@ -6678,90 +6678,94 @@ function getLastChatPreview(chatType, chatId) {
 }
 
 function renderDirectory(filter) {
-    if (!directoryBody) return;
-    const q = (filter || "").toLowerCase().trim();
-    let html = "";
+    if (!directoryBody) return;
+    const q = (filter || "").toLowerCase().trim();
+    let html = "";
 
-    if (!q || "избранное saved favorites 收藏".includes(q)) {
-        const preview = getLastChatPreview("private", currentNick);
-        const savedWord = currentUiLang === 'ru' ? "Избранное" : currentUiLang === 'zh' ? "收藏" : "Saved Messages";
-        html += directoryItemHTML("⭐", savedWord, preview ? preview.text : "", `openDirectoryChat('contact','${dirEsc(currentNick)}')`, getUnreadCount(`private_${currentNick}`), preview ? preview.time : "");
-    }
+    // 1. Избранное (Saved Messages)
+    if (!q || "избранное saved favorites 收藏".includes(q)) {
+        const preview = getLastChatPreview("private", currentNick);
+        const savedWord = currentUiLang === 'ru' ? "Избранное" : currentUiLang === 'zh' ? "收藏" : "Saved Messages";
+        html += directoryItemHTML("⭐", savedWord, preview ? preview.text : "", `openDirectoryChat('contact','${dirEsc(currentNick)}')`, getUnreadCount(`private_${currentNick}`), preview ? preview.time : "");
+    }
 
-    if (!q || tr("dirGeneralChat").toLowerCase().includes(q) || "общий чат общее public general".includes(q)) {
-        const preview = getLastChatPreview("public", "public");
-        const sub = preview ? preview.text : `${usersOnline.length} ${currentUiLang === 'ru' ? 'онлайн' : currentUiLang === 'zh' ? '在线' : 'online'}`;
-        html += directoryItemHTML("🌐", tr("dirGeneralChat"), sub, `openDirectoryChat('public')`, getUnreadCount("public"), preview ? preview.time : "");
-    }
+    // 2. Общий чат
+    if (!q || tr("dirGeneralChat").toLowerCase().includes(q) || "общий чат общее public general".includes(q)) {
+        const preview = getLastChatPreview("public", "public");
+        const sub = preview ? preview.text : `${usersOnline.length} ${currentUiLang === 'ru' ? 'онлайн' : currentUiLang === 'zh' ? '在线' : 'online'}`;
+        html += directoryItemHTML("🌐", tr("dirGeneralChat"), sub, `openDirectoryChat('public')`, getUnreadCount("public"), preview ? preview.time : "");
+    }
 
-    const groupsList = (myGroups || []).filter(g => !q || g.name.toLowerCase().includes(q));
-    if (groupsList.length) {
-        html += `<div class="dir-section">${tr("dirSectionGroups")}</div>`;
-        groupsList.forEach(g => {
-            const lastMsg = g.messages && g.messages.length ? g.messages[g.messages.length - 1] : null;
-            const membersWord = currentUiLang === 'ru' ? 'участников' : currentUiLang === 'zh' ? '名成员' : 'members';
-            const sub = lastMsg ? `${lastMsg.from}: ${lastMsg.text || "📎"}` : `${g.members.length} ${membersWord}`;
-            const time = lastMsg ? formatTime(lastMsg.time) : "";
-            html += directoryItemHTML("👥", g.name, sub, `openDirectoryChat('group','${dirEsc(g.id)}')`, getUnreadCount(`group_${g.id}`), time);
-        });
-    }
+    // 3. Группы
+    const groupsList = (myGroups || []).filter(g => !q || g.name.toLowerCase().includes(q));
+    if (groupsList.length) {
+        html += `<div class="dir-section">${tr("dirSectionGroups")}</div>`;
+        groupsList.forEach(g => {
+            const lastMsg = g.messages && g.messages.length ? g.messages[g.messages.length - 1] : null;
+            const membersWord = currentUiLang === 'ru' ? 'участников' : currentUiLang === 'zh' ? '名成员' : 'members';
+            const sub = lastMsg ? `${lastMsg.from}: ${lastMsg.text || "📎"}` : `${g.members.length} ${membersWord}`;
+            const time = lastMsg ? formatTime(lastMsg.time) : "";
+            html += directoryItemHTML("👥", g.name, sub, `openDirectoryChat('group','${dirEsc(g.id)}')`, getUnreadCount(`group_${g.id}`), time);
+        });
+    }
 
-    const channelsList = (myChannels || []).filter(c => !q || c.name.toLowerCase().includes(q));
-    if (channelsList.length) {
-        html += `<div class="dir-section">${tr("dirSectionChannels")}</div>`;
-        channelsList.forEach(c => {
-            const lastMsg = c.messages && c.messages.length ? c.messages[c.messages.length - 1] : null;
-            const subsWord = currentUiLang === 'ru' ? 'подписчиков' : currentUiLang === 'zh' ? '订阅者' : 'subscribers';
-            const sub = lastMsg ? (lastMsg.text || "📎") : `${c.subscribers?.length || 0} ${subsWord}`;
-            const time = lastMsg ? formatTime(lastMsg.time) : "";
-            html += directoryItemHTML("📣", c.name, sub, `openDirectoryChat('channel','${dirEsc(c.id)}')`, getUnreadCount(`channel_${c.id}`), time);
-        });
-    }
+    // 4. Каналы (приватные находятся ТОЛЬКО по точному 15-значному коду, публичные — по названию и по коду)
+    const channelsList = (myChannels || []).filter(c => {
+        const isSubscribed = Array.isArray(c.subscribers) && c.subscribers.includes(currentNick);
+        if (!q) return isSubscribed;
 
-    // Обычные пользователи не видят список всех подряд — только тех, с кем
-    // уже есть переписка, и тех, кто сейчас онлайн. У Димы — полный список.
-    const historicalContacts = (myLastChats || []).filter(c => c.chatType === "private").map(c => c.chatId);
-    const contactsSource = isDima() ? (allUsers || []) : [...new Set([...(allUsers || []), ...historicalContacts])];
-    const contactsList = contactsSource.filter(u => u !== currentNick && (!q || u.toLowerCase().includes(q)));
-    if (contactsList.length) {
-        html += `<div class="dir-section">${tr("dirSectionContacts")}</div>`;
-        // Сначала те, с кем уже есть переписка (свежее — выше), потом остальные контакты
-        const withHistory = [];
-        const withoutHistory = [];
-        contactsList.forEach(u => {
-            const preview = getLastChatPreview("private", u);
-            if (preview) withHistory.push({ u, preview }); else withoutHistory.push(u);
-        });
-        withHistory.sort((a, b) => {
-            const ea = (myLastChats || []).find(c => c.chatType === "private" && c.chatId === a.u);
-            const eb = (myLastChats || []).find(c => c.chatType === "private" && c.chatId === b.u);
-            return (eb?.timestamp || 0) - (ea?.timestamp || 0);
-        });
-        withHistory.forEach(({ u, preview }) => {
-            html += directoryItemHTML(u.charAt(0).toUpperCase(), u, preview.text, `openDirectoryChat('contact','${dirEsc(u)}')`, getUnreadCount(`private_${u}`), preview.time);
-        });
-        withoutHistory.forEach(u => {
-            const online = usersOnline.includes(u);
-            const statusWord = online ? tr("statusOnline") : tr("statusOffline");
-            html += directoryItemHTML(u.charAt(0).toUpperCase(), u, statusWord, `openDirectoryChat('contact','${dirEsc(u)}')`, getUnreadCount(`private_${u}`));
-        });
-    }
+        const isExactCode = c.code && String(c.code).trim() === q;
+        const matchesName = !c.isPrivate && c.name && c.name.toLowerCase().includes(q);
 
-    // Поиск конкретного человека по нику (для всех, кроме Димы — только точное
-    // совпадение, сервер сам это ограничивает) — не браузинг, а точечный поиск
-    const searchSection = document.createElement("div");
-    searchSection.id = "dirUserSearchSection";
-    if (!isDima() && q && q.length >= 2) {
-        if (userSearchDebounce) clearTimeout(userSearchDebounce);
-        userSearchDebounce = setTimeout(() => {
-            if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: "search_user", query: q }));
-        }, 250);
-    }
+        return isExactCode || matchesName;
+    });
 
-    directoryBody.innerHTML = html || `<div class="gs-empty">${tr("dirEmpty")}</div>`;
-    directoryBody.appendChild(searchSection);
+    if (channelsList.length) {
+        html += `<div class="dir-section">${tr("dirSectionChannels")}</div>`;
+        channelsList.forEach(c => {
+            const lastMsg = c.messages && c.messages.length ? c.messages[c.messages.length - 1] : null;
+            const subsWord = currentUiLang === 'ru' ? 'подписчиков' : currentUiLang === 'zh' ? '订阅者' : 'subscribers';
+            const sub = c.code ? `Код: ${c.code} · ${c.subscribers?.length || 0} ${subsWord}` : `${c.subscribers?.length || 0} ${subsWord}`;
+            const time = lastMsg ? formatTime(lastMsg.time) : "";
+            const lockIcon = c.isPrivate ? " 🔒" : "";
+            html += directoryItemHTML("📣", c.name + lockIcon, sub, `openDirectoryChat('channel','${dirEsc(c.id)}')`, getUnreadCount(`channel_${c.id}`), time);
+        });
+    }
+
+    // 5. Диалоги (без поиска видны ТОЛЬКО активные переписки; чужие пользователи не маячат)
+    const historicalContacts = (myLastChats || []).filter(c => c.chatType === "private").map(c => c.chatId);
+    const contactsSource = isDima() ? (allUsers || []) : [...new Set(historicalContacts)];
+
+    const contactsList = contactsSource.filter(u => {
+        if (u === currentNick) return false;
+        const hasHistory = (myLastChats || []).some(c => c.chatType === "private" && c.chatId === u);
+        return q ? u.toLowerCase().includes(q) : hasHistory;
+    });
+
+    if (contactsList.length) {
+        html += `<div class="dir-section">${tr("dirSectionContacts")}</div>`;
+        contactsList.forEach(u => {
+            const preview = getLastChatPreview("private", u);
+            const sub = preview ? preview.text : (usersOnline.includes(u) ? tr("statusOnline") : tr("statusOffline"));
+            const time = preview ? preview.time : "";
+            html += directoryItemHTML(u.charAt(0).toUpperCase(), u, sub, `openDirectoryChat('contact','${dirEsc(u)}')`, getUnreadCount(`private_${u}`), time);
+        });
+    }
+
+    // 6. Поиск по имени и телефону через сервер (если ищем человека, с которым ещё нет диалога)
+    const searchSection = document.createElement("div");
+    searchSection.id = "dirUserSearchSection";
+    if (q && q.length >= 2) {
+        if (userSearchDebounce) clearTimeout(userSearchDebounce);
+        userSearchDebounce = setTimeout(() => {
+            if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: "search_user", query: q }));
+        }, 250);
+    }
+
+    directoryBody.innerHTML = html || `<div class="gs-empty">${tr("dirEmpty")}</div>`;
+    directoryBody.appendChild(searchSection);
 }
-
+  
 function renderUserSearchResult(results) {
     const section = document.getElementById("dirUserSearchSection");
     if (!section) return;
