@@ -4379,18 +4379,19 @@ menuCreateGroup.onclick = () => {
 
 menuCreateChannel.onclick = () => {
     menuPanel.classList.remove("open");
-    if (!isDima()) {
-        alert("❌ Только администратор (Дима) может создавать каналы");
-        return;
-    }
     const name = prompt("Введите название канала:");
     if (name && name.trim()) {
+        const isPrivate = confirm("Сделать канал приватным?\n\n• ОК — Приватный (вход только по 15-значному коду)\n• Отмена — Публичный (виден всем в поиске)");
         if (ws && ws.readyState === 1) {
-            ws.send(JSON.stringify({ type: "create_channel", name: name.trim() }));
+            ws.send(JSON.stringify({ 
+                type: "create_channel", 
+                name: name.trim(),
+                isPrivate: Boolean(isPrivate)
+            }));
         }
     }
 };
-
+    
 menuBackup.onclick = () => {
     menuPanel.classList.remove("open");
     const data = {
@@ -6682,18 +6683,21 @@ function renderDirectory(filter) {
     const q = (filter || "").toLowerCase().trim();
     let html = "";
 
+    // 1. Избранное
     if (!q || "избранное saved favorites 收藏".includes(q)) {
         const preview = getLastChatPreview("private", currentNick);
         const savedWord = currentUiLang === 'ru' ? "Избранное" : currentUiLang === 'zh' ? "收藏" : "Saved Messages";
         html += directoryItemHTML("⭐", savedWord, preview ? preview.text : "", `openDirectoryChat('contact','${dirEsc(currentNick)}')`, getUnreadCount(`private_${currentNick}`), preview ? preview.time : "");
     }
 
+    // 2. Общий чат
     if (!q || tr("dirGeneralChat").toLowerCase().includes(q) || "общий чат общее public general".includes(q)) {
         const preview = getLastChatPreview("public", "public");
         const sub = preview ? preview.text : `${usersOnline.length} ${currentUiLang === 'ru' ? 'онлайн' : currentUiLang === 'zh' ? '在线' : 'online'}`;
         html += directoryItemHTML("🌐", tr("dirGeneralChat"), sub, `openDirectoryChat('public')`, getUnreadCount("public"), preview ? preview.time : "");
     }
 
+    // 3. Группы
     const groupsList = (myGroups || []).filter(g => !q || g.name.toLowerCase().includes(q));
     if (groupsList.length) {
         html += `<div class="dir-section">${tr("dirSectionGroups")}</div>`;
@@ -6706,52 +6710,60 @@ function renderDirectory(filter) {
         });
     }
 
-    const channelsList = (myChannels || []).filter(c => c.subscribers?.includes(currentNick) && (!q || c.name.toLowerCase().includes(q)));
+    // 4. Каналы (приватные находятся ТОЛЬКО по точному 15-значному коду, публичные — по имени или коду)
+    const channelsList = (myChannels || []).filter(c => {
+        const isSubscribed = Array.isArray(c.subscribers) && c.subscribers.includes(currentNick);
+        if (!q) return isSubscribed;
+
+        const isExactCode = c.code && String(c.code).trim() === q;
+        const matchesName = !c.isPrivate && c.name && c.name.toLowerCase().includes(q);
+
+        return isExactCode || matchesName;
+    });
+
     if (channelsList.length) {
         html += `<div class="dir-section">${tr("dirSectionChannels")}</div>`;
         channelsList.forEach(c => {
             const lastMsg = c.messages && c.messages.length ? c.messages[c.messages.length - 1] : null;
             const subsWord = currentUiLang === 'ru' ? 'подписчиков' : currentUiLang === 'zh' ? '订阅者' : 'subscribers';
-            const sub = lastMsg ? (lastMsg.text || "📎") : `${c.subscribers?.length || 0} ${subsWord}`;
+            const sub = c.code ? `Код: ${c.code} · ${c.subscribers?.length || 0} ${subsWord}` : `${c.subscribers?.length || 0} ${subsWord}`;
             const time = lastMsg ? formatTime(lastMsg.time) : "";
-            html += directoryItemHTML("📣", c.name, sub, `openDirectoryChat('channel','${dirEsc(c.id)}')`, getUnreadCount(`channel_${c.id}`), time);
+            const lockIcon = c.isPrivate ? " 🔒" : "";
+            html += directoryItemHTML("📣", c.name + lockIcon, sub, `openDirectoryChat('channel','${dirEsc(c.id)}')`, getUnreadCount(`channel_${c.id}`), time);
         });
     }
 
-    // Обычные пользователи не видят список всех подряд — только тех, с кем
-    // уже есть переписка, и тех, кто сейчас онлайн. У Димы — полный список.
+    // 5. Диалоги (без поиска видны ТОЛЬКО те, с кем реально есть история переписки)
     const historicalContacts = (myLastChats || []).filter(c => c.chatType === "private").map(c => c.chatId);
-    const contactsSource = isDima() ? (allUsers || []) : [...new Set([...(allUsers || []), ...historicalContacts])];
+    const contactsSource = isDima() ? (allUsers || []) : [...new Set(historicalContacts)];
     const contactsList = contactsSource.filter(u => u !== currentNick && (!q || u.toLowerCase().includes(q)));
+
     if (contactsList.length) {
         html += `<div class="dir-section">${tr("dirSectionContacts")}</div>`;
-        // Сначала те, с кем уже есть переписка (свежее — выше), потом остальные контакты
         const withHistory = [];
-        const withoutHistory = [];
         contactsList.forEach(u => {
             const preview = getLastChatPreview("private", u);
-            if (preview) withHistory.push({ u, preview }); else withoutHistory.push(u);
+            // Если есть история или это админ Дима
+            if (preview || isDima()) {
+                withHistory.push({ u, preview: preview || { text: usersOnline.includes(u) ? tr("statusOnline") : tr("statusOffline"), time: "" } });
+            }
         });
+
         withHistory.sort((a, b) => {
             const ea = (myLastChats || []).find(c => c.chatType === "private" && c.chatId === a.u);
             const eb = (myLastChats || []).find(c => c.chatType === "private" && c.chatId === b.u);
             return (eb?.timestamp || 0) - (ea?.timestamp || 0);
         });
+
         withHistory.forEach(({ u, preview }) => {
             html += directoryItemHTML(u.charAt(0).toUpperCase(), u, preview.text, `openDirectoryChat('contact','${dirEsc(u)}')`, getUnreadCount(`private_${u}`), preview.time);
         });
-        withoutHistory.forEach(u => {
-            const online = usersOnline.includes(u);
-            const statusWord = online ? tr("statusOnline") : tr("statusOffline");
-            html += directoryItemHTML(u.charAt(0).toUpperCase(), u, statusWord, `openDirectoryChat('contact','${dirEsc(u)}')`, getUnreadCount(`private_${u}`));
-        });
     }
 
-    // Поиск конкретного человека по нику (для всех, кроме Димы — только точное
-    // совпадение, сервер сам это ограничивает) — не браузинг, а точечный поиск
+    // 6. Поиск конкретного человека по нику или телефону через сервер
     const searchSection = document.createElement("div");
     searchSection.id = "dirUserSearchSection";
-    if (!isDima() && q && q.length >= 2) {
+    if (q && q.length >= 2) {
         if (userSearchDebounce) clearTimeout(userSearchDebounce);
         userSearchDebounce = setTimeout(() => {
             if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: "search_user", query: q }));
@@ -6765,12 +6777,15 @@ function renderDirectory(filter) {
 function renderUserSearchResult(results) {
     const section = document.getElementById("dirUserSearchSection");
     if (!section) return;
-    const known = new Set(Array.from(directoryBody.querySelectorAll(".dir-item")).map(el => el.dataset.name));
+    const known = new Set(Array.from(directoryBody.querySelectorAll(".dir-item")).map(el => el.dataset?.name));
     const fresh = (results || []).filter(r => r.nick !== currentNick && !known.has(r.nick));
     if (fresh.length === 0) { section.innerHTML = ""; return; }
-    let html = `<div class="dir-section">🔍 Найдено по нику</div>`;
+    
+    let html = `<div class="dir-section">🔍 Найдено по запросу</div>`;
     fresh.forEach(r => {
-        html += directoryItemHTML(r.nick.charAt(0).toUpperCase(), r.nick, r.online ? tr("statusOnline") : tr("statusOffline"), `openDirectoryChat('contact','${dirEsc(r.nick)}')`);
+        const status = r.online ? tr("statusOnline") : tr("statusOffline");
+        const phoneDesc = r.phone ? ` · 📞 ${r.phone}` : "";
+        html += directoryItemHTML(r.nick.charAt(0).toUpperCase(), r.nick, status + phoneDesc, `openDirectoryChat('contact','${dirEsc(r.nick)}')`);
     });
     section.innerHTML = html;
 }
@@ -6796,8 +6811,6 @@ if (dirSearchInput) dirSearchInput.addEventListener("input", () => {
     dirSearchDebounce = setTimeout(() => renderDirectory(dirSearchInput.value), 150);
 });
 if (dirMoreBtn) dirMoreBtn.onclick = () => {
-    // Полный список действий (создание канала, тема, статистика и т.д.) —
-    // ничего не удалено, просто перенесено на один уровень глубже
     closeDirectory();
     menuPanel.classList.add("open");
     updateMenuUI();
