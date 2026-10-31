@@ -1713,11 +1713,11 @@ wss.on("connection", (ws) => {
         }
 
         // ===== РЕГИСТРАЦИЯ =====
-        // if (msg.type === "register") {
-           // if (checkIPBlock(ip)) {
-               // ws.send(JSON.stringify({ type: "error", text: "Слишком много попыток. Подождите 5 минут." }));
-               // return;
-          //  }
+        if (msg.type === "register") {
+            // if (checkIPBlock(ip)) {
+            //     ws.send(JSON.stringify({ type: "error", text: "Слишком много попыток. Подождите 5 минут." }));
+            //     return;
+            // }
             const nick = msg.nick?.trim();
             const password = msg.password?.trim();
             if (!validNick(nick)) {
