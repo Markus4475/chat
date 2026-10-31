@@ -7910,8 +7910,6 @@ function addChannelMessage(m) {
     chatDiv.scrollTop = chatDiv.scrollHeight;
     ws.send(JSON.stringify({ type: "mark_read", chatType: "channel", chatId: currentChannelId, msgId: m.id }));
 }
-}
-}
 
 // Принудительное подключение к Render и инициализация кнопок
 function connect() {
