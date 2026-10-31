@@ -902,23 +902,49 @@ function deleteGroup(groupId, nick) {
 
 function createChannel(name, creator, isPrivate = false) {
     const id = Date.now().toString() + "-" + Math.random().toString(36).substr(2, 6);
+    const code = generateChannelCode();
+    const cleanName = escapeHtml(name);
+
+    // Приветственное сообщение от лица канала с кодом (и для приватных, и для публичных)
+    const accessTypeWord = isPrivate ? "приватный 🔒" : "публичный 🌐";
+    const initialMessages = [{
+        id: Date.now().toString() + "-welcome",
+        from: cleanName,
+        text: `📣 Канал создан (${accessTypeWord}).\n15-значный код доступа:\n${code}\n\nИспользуйте этот код для быстрого поиска и приглашения пользователей.`,
+        image: null,
+        video: null,
+        circle: null,
+        file: null,
+        music: null,
+        voice: null,
+        sticker: null,
+        location: null,
+        time: Date.now(),
+        timeFormatted: formatTime(Date.now()),
+        reactions: {},
+        readBy: [creator],
+        comments: [],
+        chatId: `channel_${id}`
+    }];
+
     channels[id] = {
         id,
-        name: escapeHtml(name),
-        code: generateChannelCode(),        // 15-значный числовой код доступа
-        isPrivate: Boolean(isPrivate),       // true - приватный, false - публичный
+        name: cleanName,
+        code: code,
+        isPrivate: Boolean(isPrivate),
         creator,
         admins: [creator],          // могут постить, менять аву/название/описание, назначать comment-админов
         commentAdmins: [creator],   // могут модерировать (удалять) комментарии под постами
         subscribers: [creator],     // создатель сразу подписан
-        messages: [],
+        messages: initialMessages,  // код уже добавлен первым сообщением
         avatar: null,
         isLive: false,
         createdAt: Date.now(),
         description: ""
     };
+
     saveChannels();
-    console.log(`📣 Канал "${name}" создан (приватный: ${Boolean(isPrivate)}, код: ${channels[id].code})`);
+    console.log(`📣 Канал "${cleanName}" создан (приватный: ${Boolean(isPrivate)}, код: ${code})`);
     return id;
 }
 
