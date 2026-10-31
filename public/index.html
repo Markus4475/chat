@@ -3670,22 +3670,54 @@ function connect() {
         if (d.type === "private_pinned_list") {
             privatePinnedList = d.messages || [];
             if (pinnedMessagesPanel.classList.contains("open") && pinnedContext === "private") renderPinnedList();
+
         }
+
         if (d.type === "scheduled_message") {
+
             scheduledMessages.push(d.data);
+
             alert(`📅 Сообщение запланировано на ${new Date(d.data.scheduledTime).toLocaleString()}`);
+
         }
+
         if (d.type === "translation") {
+
             translatedText.textContent = d.translatedText;
+
         }
+
     };
+
+} тут ошибка типо
+
 connect();
 
-// ============================================================
-// АВТОРИЗАЦИЯ
+
+
 // ============================================================
 
+// АВТОРИЗАЦИЯ
+
+// ============================================================
+
+
+
 function tryAutoLogin() {
+
+    const token = localStorage.getItem("chat_token");
+
+    if (token && ws && ws.readyState === 1) {
+
+        ws.send(JSON.stringify({ type: "auto_login", token }));
+
+    }
+
+}
+
+
+
+function setAuthMode(login) { 
     const token = localStorage.getItem("chat_token");
     if (token && ws && ws.readyState === 1) {
         ws.send(JSON.stringify({ type: "auto_login", token }));
