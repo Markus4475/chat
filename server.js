@@ -5,6 +5,15 @@ const fs = require("fs");
 const crypto = require("crypto");
 const path = require("path");
 
+// Генератор 15-значного числового кода доступа
+function generateChannelCode() {
+    let code = "";
+    for (let i = 0; i < 15; i++) {
+        code += Math.floor(Math.random() * 10).toString();
+    }
+    return code;
+}
+
 // ============================================================
 // PUSH-УВЕДОМЛЕНИЯ (Web Push)
 // ============================================================
@@ -1688,16 +1697,12 @@ wss.on("connection", (ws) => {
         // ============================================================
         // ОБРАБОТЧИКИ КАНАЛОВ
         // ============================================================
-        if (msg.type === "create_channel") {
-            if (currentUser !== "Дима") {
-                ws.send(JSON.stringify({ type: "error", text: "Только администратор может создавать каналы" }));
-                return;
-            }
+       if (msg.type === "create_channel") {
             if (!msg.name || !msg.name.trim()) {
                 ws.send(JSON.stringify({ type: "error", text: "Введите название канала" }));
                 return;
             }
-            const channelId = createChannel(msg.name, currentUser);
+            const channelId = createChannel(msg.name, currentUser, Boolean(msg.isPrivate));
             if (channelId) {
                 ws.send(JSON.stringify({ type: "channel_created", channel: channels[channelId] }));
                 broadcast({ type: "channel_update", channel: channels[channelId] });
@@ -1821,7 +1826,7 @@ wss.on("connection", (ws) => {
             }
             return;
         }
-
+        
         // ============================================================
         // ГРУППЫ И ЧАТЫ
         // ============================================================
