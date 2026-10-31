@@ -7910,7 +7910,24 @@ attachMessageMenu(div, m, "channel", currentChannelId);
     chatDiv.scrollTop = chatDiv.scrollHeight;
     ws.send(JSON.stringify({ type: "mark_read", chatType: "channel", chatId: currentChannelId, msgId: m.id }));
 }
-}
+    
+// ПРИНУДИТЕЛЬНОЕ ПОДКЛЮЧЕНИЕ КНОПОК
+authSwitchBtn.onclick = () => {
+    isLoginMode = !isLoginMode;
+    authTitle.textContent = isLoginMode ? "Добро пожаловать" : "Регистрация";
+    authActionBtn.textContent = isLoginMode ? "Войти" : "Зарегистрироваться";
+    authSwitchBtn.textContent = isLoginMode ? "Нет аккаунта? Регистрация" : "Уже есть аккаунт? Вход";
+    authError.textContent = "";
+};
+
+authActionBtn.onclick = () => {
+    const nick = authNick.value.trim();
+    const password = authPassword.value.trim();
+    if (!nick || nick.length < 2) { authError.textContent = "Ник от 2 символов"; return; }
+    if (!password || password.length < 3) { authError.textContent = "Пароль от 3 символов"; return; }
+    if (!ws || ws.readyState !== 1) { authError.textContent = "Нет подключения к серверу"; return; }
+    ws.send(JSON.stringify({ type: isLoginMode ? "login" : "register", nick, password, remember: rememberMe.checked }));
+};
 </script>
 </body>
 </html>
