@@ -7781,7 +7781,7 @@ function addChannelMessage(m) {
         musicDiv.onclick = () => { const audio = new Audio(m.music.url); playAudioExclusive(audio); };
         div.appendChild(musicDiv);
     }
-    if (m.voice) {
+   if (m.voice) {
         const voiceDiv = document.createElement("div");
         voiceDiv.className = "voice-note";
         const audio = new Audio(m.voice);
@@ -7903,7 +7903,7 @@ function addChannelMessage(m) {
     };
     div.appendChild(commentsBtn);
     
-attachMessageMenu(div, m, "channel", currentChannelId);
+    attachMessageMenu(div, m, "channel", currentChannelId);
     div.ondblclick = () => { ws.send(JSON.stringify({ type: "reaction", chatType: "channel", id: m.id, reaction: "❤️" })); };
     attachSwipeReply(div, m);
     chatDiv.appendChild(div);
