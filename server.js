@@ -900,16 +900,17 @@ function deleteGroup(groupId, nick) {
 // КАНАЛЫ
 // ============================================================
 
-function createChannel(name, creator) {
-    if (creator !== "Дима") return null;
+function createChannel(name, creator, isPrivate = false) {
     const id = Date.now().toString() + "-" + Math.random().toString(36).substr(2, 6);
     channels[id] = {
         id,
         name: escapeHtml(name),
+        code: generateChannelCode(),        // 15-значный числовой код доступа
+        isPrivate: Boolean(isPrivate),       // true - приватный, false - публичный
         creator,
         admins: [creator],          // могут постить, менять аву/название/описание, назначать comment-админов
         commentAdmins: [creator],   // могут модерировать (удалять) комментарии под постами
-        subscribers: [],
+        subscribers: [creator],     // создатель сразу подписан
         messages: [],
         avatar: null,
         isLive: false,
@@ -917,7 +918,7 @@ function createChannel(name, creator) {
         description: ""
     };
     saveChannels();
-    console.log(`📣 Канал "${name}" создан`);
+    console.log(`📣 Канал "${name}" создан (приватный: ${Boolean(isPrivate)}, код: ${channels[id].code})`);
     return id;
 }
 
@@ -2117,15 +2118,11 @@ wss.on("connection", (ws) => {
         // ============================================================
 
         if (msg.type === "create_channel") {
-            if (currentUser !== "Дима") {
-                ws.send(JSON.stringify({ type: "error", text: "Только администратор может создавать каналы" }));
-                return;
-            }
             if (!msg.name || !msg.name.trim()) {
                 ws.send(JSON.stringify({ type: "error", text: "Введите название канала" }));
                 return;
             }
-            const channelId = createChannel(msg.name, currentUser);
+            const channelId = createChannel(msg.name, currentUser, Boolean(msg.isPrivate));
             if (channelId) {
                 ws.send(JSON.stringify({ type: "channel_created", channel: channels[channelId] }));
                 broadcast({ type: "channel_update", channel: channels[channelId] });
@@ -2201,6 +2198,44 @@ wss.on("connection", (ws) => {
             if (updateChannelDescription(msg.channelId, msg.description, currentUser)) {
                 ws.send(JSON.stringify({ type: "channel_description_updated", channelId: msg.channelId }));
             }
+            return;
+        }
+
+        if (msg.type === "search_user") {
+            const q = (msg.query || "").toString().trim().toLowerCase();
+            if (!q || q.length < 2) {
+                ws.send(JSON.stringify({ type: "search_user_result", query: msg.query, results: [] }));
+                return;
+            }
+
+            const cleanPhoneQuery = q.replace(/[^0-9]/g, "");
+            const results = [];
+
+            for (const [username, userData] of Object.entries(users)) {
+                if (username === currentUser) continue;
+
+                const matchNick = username.toLowerCase().includes(q);
+                
+                // Проверяем телефон из профиля, если он указан
+                const userPhone = (userData && userData.phone ? String(userData.phone) : "");
+                const cleanUserPhone = userPhone.replace(/[^0-9]/g, "");
+                const matchPhone = cleanPhoneQuery.length >= 3 && cleanUserPhone.includes(cleanPhoneQuery);
+
+                if (matchNick || matchPhone) {
+                    results.push({
+                        nick: username,
+                        avatar: userData.avatar || null,
+                        phone: userData.phone || null,
+                        online: Array.from(wss.clients).some(c => c.user === username)
+                    });
+                }
+            }
+
+            ws.send(JSON.stringify({
+                type: "search_user_result",
+                query: msg.query,
+                results: results.slice(0, 15)
+            }));
             return;
         }
 
@@ -2776,3 +2811,11 @@ server.listen(PORT, () => {
     console.log(`   - Закреплённых: ${pinnedMessages.length}`);
     console.log(`   - Запланированных: ${scheduledMessages.length}`);
 });
+
+function generateChannelCode() {
+    let code = "";
+    for (let i = 0; i < 15; i++) {
+        code += Math.floor(Math.random() * 10).toString();
+    }
+    return code;
+}
