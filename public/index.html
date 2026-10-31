@@ -3683,33 +3683,15 @@ if (d.type === "translation") {
             translatedText.textContent = d.translatedText;
         }
     };
-connect();
-
-
-
-// ============================================================
-
-// АВТОРИЗАЦИЯ
-
-// ============================================================
-
-
-
-function tryAutoLogin() {
-
-    const token = localStorage.getItem("chat_token");
-
-    if (token && ws && ws.readyState === 1) {
-
-        ws.send(JSON.stringify({ type: "auto_login", token }));
-
-    }
-
 }
 
+connect();
 
+// ============================================================
+// АВТОРИЗАЦИЯ
+// ============================================================
 
-function setAuthMode(login) { 
+function tryAutoLogin() {
     const token = localStorage.getItem("chat_token");
     if (token && ws && ws.readyState === 1) {
         ws.send(JSON.stringify({ type: "auto_login", token }));
