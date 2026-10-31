@@ -3749,29 +3749,48 @@ function switchToGroup(groupId) {
 }
 
 function switchToChannel(channelId) {
-    msgInput.value = ""; // очищаем ввод при выходе из чата — независимо от того, отправлено или нет
+    // 1. Автоматически отправляем запрос на подписку
+    if (ws && ws.readyState === 1) {
+        ws.send(JSON.stringify({ type: "subscribe_channel", channelId }));
+    }
+
+    // 2. Сброс поля ввода и ответов
+    msgInput.value = "";
     replyToMsg = null;
-    document.getElementById("replyBanner").classList.add("hidden");
+    const replyBanner = document.getElementById("replyBanner");
+    if (replyBanner) replyBanner.classList.add("hidden");
+
+    // 3. Установка текущего режима чата
     currentMode = "channel";
     currentChannelId = channelId;
     currentPrivateWith = "";
     currentGroupId = null;
-    modeBar.classList.remove("hidden");
-    inviteBtn.classList.add("hidden");
-    groupMembersBtn.classList.add("hidden");
-    groupSettingsBtn.classList.add("hidden");
-    pinnedBtn.classList.add("hidden");
-    callButtons.classList.add("hidden");
-    backBtn.classList.remove("hidden");
-    modeTitle.textContent = `📣 ${currentChannel ? currentChannel.name : "Канал"}`;
+
+    // 4. Настройка видимости кнопок в интерфейсе
+    if (modeBar) modeBar.classList.remove("hidden");
+    if (inviteBtn) inviteBtn.classList.add("hidden");
+    if (groupMembersBtn) groupMembersBtn.classList.add("hidden");
+    if (groupSettingsBtn) groupSettingsBtn.classList.add("hidden");
+    if (pinnedBtn) pinnedBtn.classList.add("hidden");
+    if (callButtons) callButtons.classList.add("hidden");
+    if (backBtn) backBtn.classList.remove("hidden");
+
+    const currentChannel = (myChannels || []).find(c => c.id === channelId);
+    if (modeTitle) modeTitle.textContent = `📣 ${currentChannel ? currentChannel.name : "Канал"}`;
+    if (navCenter) navCenter.textContent = currentChannel?.name || "Канал";
+
     chatDiv.innerHTML = "";
-    loadingIndicator.classList.remove("hidden");
+    if (loadingIndicator) loadingIndicator.classList.remove("hidden");
+
+    // 5. Запрос истории сообщений и инфо о канале
     if (ws && ws.readyState === 1) {
         ws.send(JSON.stringify({ type: "get_channel_history", channelId }));
         ws.send(JSON.stringify({ type: "get_channel_info", channelId }));
     }
-    clearUnread(`channel_${channelId}`);
-    navCenter.textContent = currentChannel?.name || "Канал";
+
+    if (typeof clearUnread === "function") {
+        clearUnread(`channel_${channelId}`);
+    }
 }
 
 function updateGroupUI() {
