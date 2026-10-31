@@ -7903,55 +7903,83 @@ function addChannelMessage(m) {
     };
     div.appendChild(commentsBtn);
     
-    attachMessageMenu(div, m, "channel", currentChannelId);
+  attachMessageMenu(div, m, "channel", currentChannelId);
     div.ondblclick = () => { ws.send(JSON.stringify({ type: "reaction", chatType: "channel", id: m.id, reaction: "❤️" })); };
     attachSwipeReply(div, m);
     chatDiv.appendChild(div);
     chatDiv.scrollTop = chatDiv.scrollHeight;
     ws.send(JSON.stringify({ type: "mark_read", chatType: "channel", chatId: currentChannelId, msgId: m.id }));
 }
+}
+}
 
+// Принудительное подключение к Render и инициализация кнопок
 function connect() {
     const proto = location.protocol === "https:" ? "wss://" : "ws://";
-    ws = new WebSocket(proto + location.host);
+    window.ws = new WebSocket(proto + location.host);
 
-    ws.onopen = () => {
+    window.ws.onopen = () => {
         console.log("Connected to server");
-        tryAutoLogin();
+        if (typeof tryAutoLogin === "function") tryAutoLogin();
     };
 
-    ws.onclose = () => {
+    window.ws.onclose = () => {
         console.log("Disconnected, reconnecting...");
         setTimeout(connect, 2000);
     };
 
-    ws.onerror = (err) => {
+    window.ws.onerror = (err) => {
         console.error("WS error:", err);
     };
 
-    ws.onmessage = (event) => {
-        const d = JSON.parse(event.data);
-        handleMessage(d);
+    window.ws.onmessage = (event) => {
+        try {
+            const d = JSON.parse(event.data);
+            if (typeof handleMessage === "function") handleMessage(d);
+        } catch (e) {
+            console.error("Parse error:", e);
+        }
     };
 }
 
-// Привязка кнопок авторизации
-authSwitchBtn.onclick = () => {
-    isLoginMode = !isLoginMode;
-    authTitle.textContent = isLoginMode ? "Добро пожаловать" : "Регистрация";
-    authActionBtn.textContent = isLoginMode ? "Войти" : "Зарегистрироваться";
-    authSwitchBtn.textContent = isLoginMode ? "Нет аккаунта? Регистрация" : "Уже есть аккаунт? Вход";
-    authError.textContent = "";
-};
+const sBtn = document.getElementById("authSwitchBtn");
+const aBtn = document.getElementById("authActionBtn");
+const aTitle = document.getElementById("authTitle");
+const aError = document.getElementById("authError");
+const aNick = document.getElementById("authNick");
+const aPass = document.getElementById("authPassword");
+const rem = document.getElementById("rememberMe");
 
-authActionBtn.onclick = () => {
-    const nick = authNick.value.trim();
-    const password = authPassword.value.trim();
-    if (!nick || nick.length < 2) { authError.textContent = "Ник от 2 символов"; return; }
-    if (!password || password.length < 3) { authError.textContent = "Пароль от 3 символов"; return; }
-    if (!ws || ws.readyState !== 1) { authError.textContent = "Нет подключения к серверу"; return; }
-    ws.send(JSON.stringify({ type: isLoginMode ? "login" : "register", nick, password, remember: rememberMe.checked }));
-};
+let isLogin = true;
+
+if (sBtn) {
+    sBtn.onclick = () => {
+        isLogin = !isLogin;
+        if (aTitle) aTitle.textContent = isLogin ? "Добро пожаловать" : "Регистрация";
+        if (aBtn) aBtn.textContent = isLogin ? "Войти" : "Зарегистрироваться";
+        sBtn.textContent = isLogin ? "Нет аккаунта? Регистрация" : "Уже есть аккаунт? Вход";
+        if (aError) aError.textContent = "";
+    };
+}
+
+if (aBtn) {
+    aBtn.onclick = () => {
+        const nick = aNick ? aNick.value.trim() : "";
+        const password = aPass ? aPass.value.trim() : "";
+        if (!nick || nick.length < 2) { if (aError) aError.textContent = "Ник от 2 символов"; return; }
+        if (!password || password.length < 3) { if (aError) aError.textContent = "Пароль от 3 символов"; return; }
+        if (!window.ws || window.ws.readyState !== 1) { 
+            if (aError) aError.textContent = "Нет подключения к серверу"; 
+            return; 
+        }
+        window.ws.send(JSON.stringify({ 
+            type: isLogin ? "login" : "register", 
+            nick, 
+            password, 
+            remember: rem ? rem.checked : false 
+        }));
+    };
+}
 
 connect();
 </script>
