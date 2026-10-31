@@ -6,21 +6,13 @@ const crypto = require("crypto");
 const path = require("path");
 
 // ============================================================
-// PUSH-УВЕДОМЛЕНИЯ (Web Push, работают даже когда приложение закрыто)
+// PUSH-УВЕДОМЛЕНИЯ (Web Push)
 // ============================================================
-// Требуется пакет web-push: выполните один раз на сервере:
-//   npm install web-push
-// Если пакет не установлен, сервер продолжит работать как раньше —
-// просто push-уведомления отправляться не будут (упадёт в catch ниже).
 let webpush = null;
 try { webpush = require("web-push"); } catch (e) {
-    console.log("⚠️  Пакет 'web-push' не установлен — push-уведомления отключены. Выполните: npm install web-push");
+    console.log("⚠️ Пакет 'web-push' не установлен — push-уведомления отключены. Выполните: npm install web-push");
 }
 
-// Сгенерированная пара VAPID-ключей (публичный ключ должен совпадать
-// с тем, что зашит в index.html в функции subscribeToPush!).
-// Для продакшена рекомендуется сгенерировать свою пару и держать
-// приватный ключ в переменной окружения, а не в коде.
 const VAPID_PUBLIC_KEY = "BEUAnMTYPjsW2bVrUblmH2IUlydTUiChaAwM4gBVZIci47qT02SxlHB3rmbI_jxUC3KkM4b8cXiyUgzh5H5myuM";
 const VAPID_PRIVATE_KEY = "2zgzl3EnJu9AS4oaSx0wwnH5z_j3rpYh79RWayJWAbQ";
 
@@ -31,28 +23,16 @@ if (webpush) {
 // ============================================================
 // ШИФРОВАНИЕ ПЕРЕПИСКИ НА ДИСКЕ (AES-256-GCM)
 // ============================================================
-// Защищает от кражи/утечки файлов db.json, private.json, groups.json,
-// channels.json (например, если сервер взломают или скопируют бэкап).
-// НЕ является end-to-end шифрованием: сам сервер по-прежнему видит
-// сообщения в открытом виде в памяти, пока обрабатывает их — это
-// защита "на диске", а не "от администратора сервера".
-//
-// Чтобы включить: задайте переменную окружения CHATTERBOX_ENCRYPTION_KEY
-// (64 hex-символа = 32 байта). Сгенерировать можно командой:
-//   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
-// ВАЖНО: никогда не храните этот ключ в коде или git — только в
-// переменных окружения/секретах хостинга. Если ключ потеряется —
-// старые данные будет невозможно расшифровать.
 let ENCRYPTION_KEY = null;
 if (process.env.CHATTERBOX_ENCRYPTION_KEY && process.env.CHATTERBOX_ENCRYPTION_KEY.length === 64) {
     try {
         ENCRYPTION_KEY = Buffer.from(process.env.CHATTERBOX_ENCRYPTION_KEY, "hex");
         console.log("🔐 Шифрование хранилища ВКЛЮЧЕНО (AES-256-GCM)");
     } catch (e) {
-        console.log("⚠️  CHATTERBOX_ENCRYPTION_KEY некорректен — шифрование хранилища отключено");
+        console.log("⚠️ CHATTERBOX_ENCRYPTION_KEY некорректен — шифрование хранилища отключено");
     }
 } else {
-    console.log("⚠️  CHATTERBOX_ENCRYPTION_KEY не задан — сообщения хранятся в открытом виде. Задайте переменную окружения, чтобы включить шифрование на диске.");
+    console.log("⚠️ CHATTERBOX_ENCRYPTION_KEY не задан — сообщения хранятся в открытом виде.");
 }
 
 function encryptText(text) {
@@ -81,10 +61,6 @@ function decryptText(payload) {
     }
 }
 
-// Шифрует/расшифровывает поле text у сообщений и их комментариев (для
-// каналов). Возвращает НОВЫЕ объекты, не мутирует исходные — это важно,
-// т.к. те же message-объекты рассылаются другим пользователям по WebSocket
-// в открытом виде (шифруется только то, что реально пишется на диск).
 function encryptMessagesForSave(messages) {
     if (!ENCRYPTION_KEY || !Array.isArray(messages)) return messages;
     return messages.map(m => {
@@ -112,15 +88,6 @@ function decryptMessagesAfterLoad(messages) {
 const app = express();
 const server = http.createServer(app);
 
-// ============================================================
-// ЗАЩИТА ОТ ПАДЕНИЯ ВСЕГО СЕРВЕРА
-// ============================================================
-// Без этого ЛЮБАЯ необработанная ошибка (даже в одном крошечном обработчике
-// одного сообщения от одного пользователя) роняла весь Node.js процесс
-// целиком — отключая АБСОЛЮТНО ВСЕХ подключённых пользователей разом.
-// Именно так вела себя ошибка "Assignment to constant variable" в auto_login.
-// Теперь такие ошибки просто логируются, а сервер продолжает работать для
-// всех остальных.
 process.on("uncaughtException", (err) => {
     console.error("🔴 Необработанная ошибка (сервер продолжает работать):", err);
 });
@@ -129,12 +96,11 @@ process.on("unhandledRejection", (reason) => {
 });
 const wss = new WebSocket.Server({ server });
 
-// Базовые security-заголовки (без внешних зависимостей вроде helmet)
 app.use((req, res, next) => {
-    res.setHeader("X-Content-Type-Options", "nosniff");   // запрет MIME-sniffing
-    res.setHeader("X-Frame-Options", "DENY");              // запрет встраивания в iframe (clickjacking)
-    res.setHeader("Referrer-Policy", "no-referrer");        // не палим URL в заголовке Referer
-    res.setHeader("Permissions-Policy", "interest-cohort=()"); // отключаем FLoC-подобное отслеживание
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("X-Frame-Options", "DENY");
+    res.setHeader("Referrer-Policy", "no-referrer");
+    res.setHeader("Permissions-Policy", "interest-cohort=()");
     next();
 });
 
@@ -171,7 +137,7 @@ let privatePinned = {};
 let scheduledMessages = [];
 let ipAttempts = new Map();
 let ipBlockedUntil = new Map();
-let pushSubscriptions = {}; // nick -> [subscription, ...] (несколько устройств на пользователя)
+let pushSubscriptions = {};
 
 // ===== ФАЙЛЫ =====
 const DB_FILE = "db.json";
@@ -192,7 +158,6 @@ const PRIVATE_PINNED_FILE = "private_pinned.json";
 // ============================================================
 // ЗАГРУЗКА ДАННЫХ
 // ============================================================
-
 function loadData() {
     try {
         if (fs.existsSync(USERS_FILE)) {
@@ -348,15 +313,8 @@ loadData();
 // ============================================================
 // СОХРАНЕНИЕ
 // ============================================================
-
 function saveUsers() { try { fs.writeFileSync(USERS_FILE, JSON.stringify(usersDB, null, 2)); } catch(e){} }
 
-// ВАЖНО: эти 4 функции вызываются на КАЖДОЕ отправленное сообщение (текст,
-// голосовое, файл — что угодно). fs.writeFileSync блокирует ВЕСЬ процесс
-// Node.js целиком, пока пишется файл — то есть все остальные пользователи
-// сервера буквально замирают на это время, а сообщение доставляется adresату
-// только ПОСЛЕ записи. Переводим на fs.writeFile (асинхронно, не блокирует
-// event loop) — сохранение на диск идёт в фоне, не задерживая доставку.
 function savePublic() {
     try {
         const data = JSON.stringify(encryptMessagesForSave(history.slice(-500)), null, 2);
@@ -392,10 +350,8 @@ function savePinned() { try { fs.writeFileSync(PINNED_FILE, JSON.stringify(pinne
 function saveScheduled() { try { fs.writeFileSync(SCHEDULED_FILE, JSON.stringify(scheduledMessages, null, 2)); } catch(e){} }
 function savePushSubscriptions() { try { fs.writeFileSync(PUSH_FILE, JSON.stringify(pushSubscriptions, null, 2)); } catch(e){} }
 function saveBlocks() { try { fs.writeFileSync(BLOCKS_FILE, JSON.stringify(Object.fromEntries(userBlocks), null, 2)); } catch(e){} }
+function savePrivatePinned() { try { fs.writeFileSync(PRIVATE_PINNED_FILE, JSON.stringify(privatePinned, null, 2)); } catch(e){} }
 
-// Отправляет push-уведомление пользователю на ВСЕ его сохранённые устройства.
-// Вызывается только когда пользователь offline (иначе он и так получит
-// сообщение мгновенно через WebSocket — дублировать push не нужно).
 function sendPushToUser(nick, { title, body, tag }) {
     if (!webpush) return;
     const subs = pushSubscriptions[nick];
@@ -404,7 +360,6 @@ function sendPushToUser(nick, { title, body, tag }) {
     let changed = false;
     pushSubscriptions[nick] = subs.filter(sub => {
         webpush.sendNotification(sub, payload).catch(err => {
-            // 404/410 = подписка больше недействительна (например, юзер очистил данные браузера)
             if (err && (err.statusCode === 404 || err.statusCode === 410)) {
                 pushSubscriptions[nick] = (pushSubscriptions[nick] || []).filter(s => s.endpoint !== sub.endpoint);
                 savePushSubscriptions();
@@ -418,12 +373,8 @@ function sendPushToUser(nick, { title, body, tag }) {
 // ============================================================
 // УТИЛИТЫ
 // ============================================================
+function hashPassword(p) { return crypto.createHash("sha256").update(p).digest("hex"); }
 
-function hashPassword(p) { return crypto.createHash("sha256").update(p).digest("hex"); } // оставлено для обратной совместимости (старые аккаунты)
-
-// Надёжное хеширование: scrypt + случайная соль на каждого пользователя.
-// Формат хранения: "scrypt:<соль>:<хеш>" — так его можно отличить от старого
-// формата (просто 64 hex-символа sha256) и не сломать существующие аккаунты.
 function hashPasswordSecure(password, salt) {
     salt = salt || crypto.randomBytes(16).toString("hex");
     const hash = crypto.scryptSync(password, salt, 64).toString("hex");
@@ -442,19 +393,17 @@ function verifyPassword(password, stored) {
             return a.length === b.length && crypto.timingSafeEqual(a, b);
         } catch (e) { return false; }
     }
-    // Старый формат (нешифрованный sha256 без соли) — поддерживаем для уже
-    // зарегистрированных аккаунтов, чтобы никого не выкинуть из профиля
     return hashPassword(password) === stored;
 }
 function generateToken() { return crypto.randomBytes(32).toString("hex"); }
 function generateDeviceId() { return crypto.randomBytes(16).toString("hex"); }
 function formatTime(t) { const d = new Date(t); d.setHours(d.getHours() + 3); return d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" }); }
-function formatFullTime(t) { const d = new Date(t); d.setHours(d.getHours() + 3); return d.toLocaleString("ru-RU"); }
 function escapeHtml(s) { if (!s) return ""; return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
 function validNick(n) { n = n?.trim(); if (!n || n.length < 2 || n.length > 16) return false; return /^[a-zA-Zа-яА-Я0-9_]+$/.test(n); }
 function nickExistsInDB(n) { return !!usersDB[n]; }
 function getPrivateKey(u1, u2) { return [u1, u2].sort().join("_"); }
 function isBlocked(user, target) { return (userBlocks.get(user) || []).includes(target); }
+
 function sendToUser(nick, obj) {
     for (const [c, n] of usersOnline.entries()) {
         if (n === nick && c.readyState === 1) {
@@ -491,36 +440,19 @@ function checkRate(ws) {
     return arr.length <= 10;
 }
 
-// Если у ника уже есть "старое" соединение (например, приложение было
-// закрыто, но сервер ещё не успел это обнаружить через ping/pong —
-// такое обнаружение происходит раз в 30 секунд), новый вход должен
-// ЗАМЕНИТЬ старую сессию, а не блокировать вход и не создавать
-// второй параллельный "призрачный" коннект на тот же ник.
 function kickExistingSession(nick) {
     for (const [c, n] of usersOnline.entries()) {
         if (n === nick) {
             usersOnline.delete(c);
             rate.delete(c);
             try {
-                // Пытаемся ещё и текстом — но полагаться на него нельзя (гонка
-                // между message/close на клиенте), поэтому основной сигнал —
-                // код закрытия 4001, он передаётся атомарно вместе с close
-                // и не может "потеряться" или прийти не в том порядке.
                 c.send(JSON.stringify({ type: "error", text: "Вы вошли с другого устройства/вкладки" }));
             } catch (e) {}
             try { c.close(4001, "kicked_by_new_session"); } catch (e) {}
-            // terminate() обрывает сокет мгновенно и жёстко — если вызвать его
-            // сразу же, "честный" close() выше может не успеть доставить код
-            // клиенту. Даём небольшую фору, terminate — только подстраховка
-            // на случай, если соединение вообще не отвечает.
             setTimeout(() => { try { c.terminate(); } catch (e) {} }, 300);
         }
     }
 }
-
-// ============================================================
-// ЗАЩИТА ОТ БРУТФОРСА
-// ============================================================
 
 function checkIPBlock(ip) {
     if (ipBlockedUntil.has(ip)) {
@@ -550,11 +482,8 @@ function resetIPAttempts(ip) {
 }
 
 // ============================================================
+// ГРУППЫ
 // ============================================================
-// ГРУППЫ — РАСШИРЕННЫЕ ФУНКЦИИ
-// ============================================================
-// ============================================================
-
 function addGroupLog(groupId, action) {
     if (!groups[groupId]) return;
     if (!groups[groupId].actionLog) groups[groupId].actionLog = [];
@@ -574,7 +503,6 @@ function getGroupLog(groupId) {
     return groups[groupId].actionLog || [];
 }
 
-// ===== 2. 🛡️ Администраторы =====
 function addAdmin(groupId, nick, adder) {
     if (!groups[groupId]) return false;
     if (groups[groupId].creator !== adder && adder !== "Дима") return false;
@@ -598,7 +526,6 @@ function removeAdmin(groupId, nick, remover) {
     return true;
 }
 
-// ===== 4. ➕ Добавление участников =====
 function addMemberByNick(groupId, nick, inviter) {
     if (!groups[groupId]) return false;
     if (groups[groupId].members.includes(nick)) return false;
@@ -611,7 +538,6 @@ function addMemberByNick(groupId, nick, inviter) {
     return true;
 }
 
-// ===== 5. ⚙️ Настройки группы =====
 function updateGroupSettings(groupId, settings, updater) {
     if (!groups[groupId]) return false;
     if (groups[groupId].creator !== updater && !groups[groupId].admins.includes(updater) && updater !== "Дима") return false;
@@ -623,7 +549,6 @@ function updateGroupSettings(groupId, settings, updater) {
     return true;
 }
 
-// ===== 5a. 📝 Название группы =====
 function updateGroupName(groupId, newName, updater) {
     if (!groups[groupId]) return false;
     if (!newName || !newName.trim()) return false;
@@ -640,7 +565,6 @@ function updateGroupName(groupId, newName, updater) {
     return true;
 }
 
-// ===== 7. 🔗 Пригласительная ссылка =====
 function generateInviteLink(groupId) {
     if (!groups[groupId]) return null;
     const token = crypto.randomBytes(16).toString("hex");
@@ -671,7 +595,6 @@ function joinByInviteLink(groupId, token, nick) {
     return true;
 }
 
-// ===== 8. 🔒 Проверка прав =====
 function checkGroupPermission(groupId, action, nick) {
     if (!groups[groupId]) return false;
     if (groups[groupId].creator === nick) return true;
@@ -698,7 +621,6 @@ function checkGroupPermission(groupId, action, nick) {
     }
 }
 
-// ===== 9. 📌 Закреплённые сообщения =====
 function pinGroupMessage(groupId, msgId, pinner) {
     if (!groups[groupId]) return false;
     if (!checkGroupPermission(groupId, "pin", pinner)) return false;
@@ -724,13 +646,6 @@ function unpinGroupMessage(groupId, msgId, unpinner) {
     return true;
 }
 
-// ===== Закрепление в публичном и личном чате =====
-// pinnedMessages (публичный чат) — общий для всех, т.к. сам чат публичный.
-// privatePinned (личные чаты) — НЕ рассылается всем подряд, только двум
-// участникам конкретной переписки, иначе это была бы утечка чужих личных
-// сообщений остальным пользователям при подключении.
-function savePrivatePinned() { try { fs.writeFileSync(PRIVATE_PINNED_FILE, JSON.stringify(privatePinned, null, 2)); } catch(e){} }
-
 function pinMessage(chatType, chatId, msgId, pinner) {
     let target = null;
     if (chatType === "public") {
@@ -738,7 +653,7 @@ function pinMessage(chatType, chatId, msgId, pinner) {
     } else if (chatType === "private") {
         const arr = privateHistory[chatId];
         target = arr ? arr.find(m => m.id === msgId) : null;
-        if (target && target.from !== pinner && target.to !== pinner) return null; // не участник переписки
+        if (target && target.from !== pinner && target.to !== pinner) return null;
     }
     if (!target) return null;
 
@@ -782,17 +697,13 @@ function unpinMessage(chatType, chatId, msgId, unpinner) {
             sendToUser(target.from, { type: "pinned_removed", unpinId: msgId });
             sendToUser(target.to, { type: "pinned_removed", unpinId: msgId });
         } else {
-            unbindFallbackUnpin(unpinner, msgId);
+            sendToUser(unpinner, { type: "pinned_removed", unpinId: msgId });
         }
         return true;
     }
     return false;
 }
-function unbindFallbackUnpin(unpinner, msgId) {
-    sendToUser(unpinner, { type: "pinned_removed", unpinId: msgId });
-}
 
-// ===== 10. 🖼️ Фото и описание =====
 function updateGroupAvatar(groupId, avatar, updater) {
     if (!groups[groupId]) return false;
     if (!checkGroupPermission(groupId, "change_avatar", updater)) return false;
@@ -813,7 +724,6 @@ function updateGroupDescription(groupId, description, updater) {
     return true;
 }
 
-// ===== 11. 🔍 Поиск =====
 function searchGroupMessages(groupId, query) {
     if (!groups[groupId]) return [];
     const q = query.toLowerCase();
@@ -822,7 +732,6 @@ function searchGroupMessages(groupId, query) {
     );
 }
 
-// ===== 12. 📂 Медиа, файлы, ссылки =====
 function getGroupMedia(groupId) {
     if (!groups[groupId]) return [];
     return groups[groupId].messages.filter(m => 
@@ -851,7 +760,6 @@ function getGroupLinks(groupId) {
     return links;
 }
 
-// ===== 13. 🔕 Уведомления =====
 function setGroupNotificationSettings(groupId, nick, settings) {
     if (!groups[groupId]) return false;
     if (!groups[groupId].members.includes(nick)) return false;
@@ -866,16 +774,10 @@ function getGroupNotificationSettings(groupId, nick) {
     return groups[groupId].notifications?.[nick] || { enabled: true, mentions: true };
 }
 
-// ===== 14. 📝 Журнал действий =====
-// уже есть addGroupLog и getGroupLog
-
-// ===== 15. 🚪 Выход или удаление =====
 function leaveGroup(groupId, nick) {
     if (!groups[groupId]) return false;
     if (!groups[groupId].members.includes(nick)) return false;
-    if (groups[groupId].creator === nick) {
-        return false; // создатель не может выйти
-    }
+    if (groups[groupId].creator === nick) return false;
     groups[groupId].members = groups[groupId].members.filter(m => m !== nick);
     if (groups[groupId].admins) {
         groups[groupId].admins = groups[groupId].admins.filter(a => a !== nick);
@@ -897,9 +799,8 @@ function deleteGroup(groupId, nick) {
 }
 
 // ============================================================
-// КАНАЛЫ
+// КАНАЛЫ (ИСПРАВЛЕННЫЙ БЛОК)
 // ============================================================
-
 function createChannel(name, creator) {
     if (creator !== "Дима") return null;
     const id = Date.now().toString() + "-" + Math.random().toString(36).substr(2, 6);
@@ -907,9 +808,9 @@ function createChannel(name, creator) {
         id,
         name: escapeHtml(name),
         creator,
-        admins: [creator],          // могут постить, менять аву/название/описание, назначать comment-админов
-        commentAdmins: [creator],   // могут модерировать (удалять) комментарии под постами
-        subscribers: [],
+        admins: [creator],
+        commentAdmins: [creator],
+        subscribers: [creator], // <-- Создатель сразу добавляется в подписчики
         messages: [],
         avatar: null,
         isLive: false,
@@ -1042,7 +943,6 @@ function sendChannelMessage(channelId, from, msgData) {
     saveChannels();
 }
 
-// ===== КОММЕНТАРИИ К ПОСТАМ КАНАЛА =====
 function addChannelComment(channelId, msgId, from, text) {
     if (!channels[channelId]) return null;
     if (!channels[channelId].subscribers.includes(from)) return null;
@@ -1087,7 +987,6 @@ function getChannelsForUser(nick) {
 // ============================================================
 // ГРУППЫ — ОСНОВНЫЕ ФУНКЦИИ
 // ============================================================
-
 function createGroup(name, creator) {
     const id = Date.now().toString() + "-" + Math.random().toString(36).substr(2, 6);
     groups[id] = {
@@ -1205,10 +1104,6 @@ function sendGroupMessage(groupId, from, msgData) {
     saveGroups();
 }
 
-// ============================================================
-// ОПРОСЫ В ГРУППАХ
-// ============================================================
-
 function addPollToGroup(groupId, poll, creator) {
     if (!groups[groupId] || !groups[groupId].members.includes(creator)) return false;
     const newPoll = {
@@ -1237,10 +1132,6 @@ function voteInPoll(groupId, pollId, option, voter) {
     broadcast({ type: "poll_update", groupId, poll });
     return true;
 }
-
-// ============================================================
-// ЧАТЫ
-// ============================================================
 
 function updateLastChat(nick, chatType, chatId, lastMessage) {
     if (!usersDB[nick]) usersDB[nick] = {};
@@ -1330,7 +1221,7 @@ function editMessage(chatType, chatId, msgId, newText, editor) {
     if (!target) return false;
     if (target.owner !== editor && target.from !== editor && editor !== "Дима") return false;
     const newEscaped = escapeHtml(newText.slice(0, 500));
-    if (newEscaped === target.text) return true; // текст не изменился — не помечаем как отредактированное
+    if (newEscaped === target.text) return true;
     target.text = newEscaped;
     target.edited = true;
     if (chatType === "public") savePublic();
@@ -1382,21 +1273,16 @@ function deleteMessage(chatType, chatId, msgId, deleter) {
 // ============================================================
 // ЗАГРУЗКА ФАЙЛОВ
 // ============================================================
-
-// Расширения, которые НЕЛЬЗЯ загружать как обычный файл (исполняемые/скрипты) —
-// иначе их можно будет открыть по прямой ссылке /files/... и получить RCE-подобный риск
 const DANGEROUS_EXTENSIONS = [
     ".exe", ".bat", ".cmd", ".sh", ".ps1", ".msi", ".com", ".scr",
     ".js", ".mjs", ".cjs", ".vbs", ".jar", ".php", ".phtml", ".py",
     ".rb", ".pl", ".dll", ".so", ".app", ".apk", ".htaccess", ".html", ".htm"
 ];
 
-// Убираем из имени файла всё, что могло бы вывести путь за пределы
-// целевой папки (../, абсолютные пути, разделители директорий и т.д.)
 function sanitizeFilename(name) {
     if (!name) return "file";
-    let base = path.basename(String(name)); // отбрасывает любые директории из пути
-    base = base.replace(/[^a-zA-Z0-9а-яА-Я0-9_.\-]/g, "_"); // только безопасные символы
+    let base = path.basename(String(name));
+    base = base.replace(/[^a-zA-Z0-9а-яА-Я0-9_.\-]/g, "_");
     if (!base || base === "." || base === "..") base = "file";
     return base.slice(0, 150);
 }
@@ -1409,18 +1295,15 @@ function handleUpload(ws, msg, folder, type) {
     const safeOriginalName = sanitizeFilename(msg.filename || "video.webm");
     const ext = path.extname(safeOriginalName).toLowerCase();
     if (folder === "files" && DANGEROUS_EXTENSIONS.includes(ext)) {
-        ws.send(JSON.stringify({ type: "error", text: "Этот тип файла запрещён к загрузке из соображений безопасности" }));
+        ws.send(JSON.stringify({ type: "error", text: "Этот тип файла запрещён к загрузке" }));
         return;
     }
     const filename = Date.now() + "_" + sanitizeFilename(ws.nick) + "_" + safeOriginalName;
     const filepath = path.join(folder, filename);
-    // Доп. проверка: итоговый путь должен остаться строго внутри целевой папки
     if (!path.resolve(filepath).startsWith(path.resolve(folder) + path.sep)) {
         ws.send(JSON.stringify({ type: "error", text: "Недопустимое имя файла" }));
         return;
     }
-    // Асинхронная запись — не блокирует сервер для остальных пользователей,
-    // пока пишется файл (актуально для голосовых/музыки/видео покрупнее)
     let buf;
     try {
         buf = Buffer.from(msg.data, "base64");
@@ -1440,7 +1323,6 @@ function handleUpload(ws, msg, folder, type) {
 // ============================================================
 // ПЛАНИРОВЩИК
 // ============================================================
-
 function scheduleMessage(chatId, text, scheduledTime, from) {
     const msg = {
         id: Date.now().toString() + "-" + Math.random().toString(36).substr(2, 8),
@@ -1547,7 +1429,6 @@ function checkScheduledMessages() {
         }
     }
     if (sent > 0) {
-        saveScheduled();
         scheduledMessages = scheduledMessages.filter(m => !m.sent);
         saveScheduled();
     }
@@ -1558,42 +1439,11 @@ setInterval(checkScheduledMessages, 10000);
 // ============================================================
 // ПЕРЕВОД
 // ============================================================
-
 function translateText(text, targetLang) {
     const translations = {
-        ru: {
-            "hello": "привет",
-            "how are you": "как дела",
-            "good morning": "доброе утро",
-            "good night": "спокойной ночи",
-            "thank you": "спасибо",
-            "yes": "да",
-            "no": "нет",
-            "maybe": "возможно",
-            "ok": "хорошо",
-            "help": "помощь"
-        },
-        en: {
-            "привет": "hello",
-            "как дела": "how are you",
-            "доброе утро": "good morning",
-            "спокойной ночи": "good night",
-            "спасибо": "thank you",
-            "да": "yes",
-            "нет": "no",
-            "возможно": "maybe",
-            "хорошо": "ok",
-            "помощь": "help"
-        },
-        zh: {
-            "привет": "你好",
-            "как дела": "你好吗",
-            "спасибо": "谢谢",
-            "да": "是",
-            "нет": "不是",
-            "хорошо": "好",
-            "помощь": "帮助"
-        }
+        ru: { "hello": "привет", "how are you": "как дела", "good morning": "доброе утро", "good night": "спокойной ночи", "thank you": "спасибо", "yes": "да", "no": "нет", "ok": "хорошо" },
+        en: { "привет": "hello", "как дела": "how are you", "доброе утро": "good morning", "спокойной ночи": "good night", "спасибо": "thank you", "да": "yes", "нет": "no", "хорошо": "ok" },
+        zh: { "привет": "你好", "как дела": "你好吗", "спасибо": "谢谢", "да": "是", "нет": "不是", "хорошо": "好" }
     };
     const lower = text.toLowerCase();
     const langMap = translations[targetLang] || translations.ru;
@@ -1603,16 +1453,13 @@ function translateText(text, targetLang) {
             result = result.replace(new RegExp(key, "gi"), value);
         }
     }
-    if (result === text) {
-        return `[Перевод на ${targetLang}] ${text}`;
-    }
+    if (result === text) return `[Перевод на ${targetLang}] ${text}`;
     return result;
 }
 
 // ============================================================
 // ВЕБСОКЕТ
 // ============================================================
-
 wss.on("connection", (ws) => {
     ws.isAlive = true;
     ws.on("pong", () => ws.isAlive = true);
@@ -1638,7 +1485,6 @@ wss.on("connection", (ws) => {
         let msg;
         try { msg = JSON.parse(raw); } catch { return; }
 
-        // ===== АВТОВХОД =====
         if (msg.type === "auto_login") {
             let token = msg.token;
             const deviceId = msg.deviceId;
@@ -1677,7 +1523,6 @@ wss.on("connection", (ws) => {
             return;
         }
 
-        // ===== РЕГИСТРАЦИЯ =====
         if (msg.type === "register") {
             if (checkIPBlock(ip)) {
                 ws.send(JSON.stringify({ type: "error", text: "Слишком много попыток. Подождите 5 минут." }));
@@ -1712,7 +1557,6 @@ wss.on("connection", (ws) => {
             return;
         }
 
-        // ===== ЛОГИН =====
         if (msg.type === "login") {
             if (checkIPBlock(ip)) {
                 ws.send(JSON.stringify({ type: "error", text: "Слишком много попыток. Подождите 5 минут." }));
@@ -1742,8 +1586,6 @@ wss.on("connection", (ws) => {
                 recordIPAttempt(ip);
                 return;
             }
-            // Автоапгрейд: если пароль был в старом слабом формате (sha256 без
-            // соли), после успешного входа тихо перехешируем на scrypt+соль
             if (!usersDB[nick].password.startsWith("scrypt:")) {
                 usersDB[nick].password = hashPasswordSecure(password);
                 saveUsers();
@@ -1788,7 +1630,6 @@ wss.on("connection", (ws) => {
 
         const currentUser = ws.nick;
 
-        // ===== PUSH-ПОДПИСКА =====
         if (msg.type === "push_subscribe") {
             if (!msg.subscription || !msg.subscription.endpoint) return;
             if (!pushSubscriptions[currentUser]) pushSubscriptions[currentUser] = [];
@@ -1808,7 +1649,6 @@ wss.on("connection", (ws) => {
             return;
         }
 
-        // ===== СТАТУС =====
         if (msg.type === "update_status") {
             const validStatuses = ["online", "away", "offline", "busy"];
             if (validStatuses.includes(msg.status)) {
@@ -1819,7 +1659,6 @@ wss.on("connection", (ws) => {
             return;
         }
 
-        // ===== ПРОФИЛЬ =====
         if (msg.type === "get_profile") {
             if (usersDB[msg.nick]) {
                 ws.send(JSON.stringify({
@@ -1847,275 +1686,8 @@ wss.on("connection", (ws) => {
         }
 
         // ============================================================
-        // ГРУППЫ — НОВЫЕ ОБРАБОТЧИКИ
+        // ОБРАБОТЧИКИ КАНАЛОВ
         // ============================================================
-
-        // Создать группу
-        if (msg.type === "create_group") {
-            if (!msg.name || !msg.name.trim()) {
-                ws.send(JSON.stringify({ type: "error", text: "Введите название группы" }));
-                return;
-            }
-            const groupId = createGroup(msg.name, currentUser);
-            ws.send(JSON.stringify({ type: "group_created", group: groups[groupId] }));
-            broadcast({ type: "group_update", group: groups[groupId] });
-            return;
-        }
-
-        // Получить информацию о группе
-        if (msg.type === "get_group_info") {
-            if (groups[msg.groupId]) {
-                ws.send(JSON.stringify({
-                    type: "group_info",
-                    groupId: msg.groupId,
-                    group: groups[msg.groupId]
-                }));
-            }
-            return;
-        }
-
-        // Получить журнал действий
-        if (msg.type === "get_group_log") {
-            if (groups[msg.groupId] && groups[msg.groupId].members.includes(currentUser)) {
-                ws.send(JSON.stringify({
-                    type: "group_log",
-                    groupId: msg.groupId,
-                    log: getGroupLog(msg.groupId)
-                }));
-            }
-            return;
-        }
-
-        // Назначить администратора
-        if (msg.type === "add_admin") {
-            if (addAdmin(msg.groupId, msg.nick, currentUser)) {
-                ws.send(JSON.stringify({ type: "admin_added", groupId: msg.groupId, nick: msg.nick }));
-            }
-            return;
-        }
-
-        // Снять администратора
-        if (msg.type === "remove_admin") {
-            if (removeAdmin(msg.groupId, msg.nick, currentUser)) {
-                ws.send(JSON.stringify({ type: "admin_removed", groupId: msg.groupId, nick: msg.nick }));
-            }
-            return;
-        }
-
-        // Добавить участника по нику
-        if (msg.type === "add_member") {
-            if (!nickExistsInDB(msg.nick)) {
-                ws.send(JSON.stringify({ type: "error", text: `Пользователь "${msg.nick}" не найден` }));
-                return;
-            }
-            if (addMemberByNick(msg.groupId, msg.nick, currentUser)) {
-                ws.send(JSON.stringify({ type: "member_added", groupId: msg.groupId, nick: msg.nick }));
-            } else {
-                ws.send(JSON.stringify({ type: "error", text: "Пользователь уже в группе или забанен" }));
-            }
-            return;
-        }
-
-        // Удалить участника
-        if (msg.type === "remove_member") {
-            if (removeFromGroup(msg.groupId, msg.nick, currentUser)) {
-                ws.send(JSON.stringify({ type: "member_removed", groupId: msg.groupId, nick: msg.nick }));
-            }
-            return;
-        }
-
-        // Выйти из группы
-        if (msg.type === "leave_group") {
-            if (leaveGroup(msg.groupId, currentUser)) {
-                ws.send(JSON.stringify({ type: "left_group", groupId: msg.groupId }));
-            } else {
-                ws.send(JSON.stringify({ type: "error", text: "Создатель не может выйти, только удалить группу" }));
-            }
-            return;
-        }
-
-        // Удалить группу
-        if (msg.type === "delete_group") {
-            if (deleteGroup(msg.groupId, currentUser)) {
-                ws.send(JSON.stringify({ type: "group_deleted", groupId: msg.groupId }));
-            }
-            return;
-        }
-
-        // Обновить настройки группы
-        if (msg.type === "update_group_settings") {
-            if (updateGroupSettings(msg.groupId, msg.settings, currentUser)) {
-                ws.send(JSON.stringify({ type: "settings_updated", groupId: msg.groupId }));
-            }
-            return;
-        }
-
-        // Обновить название группы
-        if (msg.type === "update_group_name") {
-            if (updateGroupName(msg.groupId, msg.newName, currentUser)) {
-                ws.send(JSON.stringify({ type: "group_name_updated", groupId: msg.groupId }));
-            } else {
-                ws.send(JSON.stringify({ type: "error", text: "Не удалось изменить название группы" }));
-            }
-            return;
-        }
-
-        // Получить пригласительную ссылку
-        if (msg.type === "get_invite_link") {
-            if (groups[msg.groupId] && groups[msg.groupId].members.includes(currentUser)) {
-                const link = getInviteLink(msg.groupId);
-                ws.send(JSON.stringify({
-                    type: "invite_link",
-                    groupId: msg.groupId,
-                    link: link
-                }));
-            }
-            return;
-        }
-
-        // Присоединиться по ссылке
-        if (msg.type === "join_by_link") {
-            if (joinByInviteLink(msg.groupId, msg.token, currentUser)) {
-                ws.send(JSON.stringify({ type: "joined_by_link", groupId: msg.groupId }));
-                broadcast({ type: "group_update", group: groups[msg.groupId] });
-            } else {
-                ws.send(JSON.stringify({ type: "error", text: "Неверная ссылка или вы уже в группе" }));
-            }
-            return;
-        }
-
-        // Обновить аватар группы
-        if (msg.type === "update_group_avatar") {
-            if (updateGroupAvatar(msg.groupId, msg.avatar, currentUser)) {
-                ws.send(JSON.stringify({ type: "group_avatar_updated", groupId: msg.groupId, avatar: msg.avatar }));
-            }
-            return;
-        }
-
-        // Обновить описание группы
-        if (msg.type === "update_group_description") {
-            if (updateGroupDescription(msg.groupId, msg.description, currentUser)) {
-                ws.send(JSON.stringify({ type: "group_description_updated", groupId: msg.groupId }));
-            }
-            return;
-        }
-
-        // Поиск по сообщениям в группе
-        if (msg.type === "search_group_messages") {
-            if (groups[msg.groupId] && groups[msg.groupId].members.includes(currentUser)) {
-                const results = searchGroupMessages(msg.groupId, msg.query);
-                ws.send(JSON.stringify({
-                    type: "search_results",
-                    results: results,
-                    groupId: msg.groupId
-                }));
-            }
-            return;
-        }
-
-        // Получить медиа группы
-        if (msg.type === "get_group_media") {
-            if (groups[msg.groupId] && groups[msg.groupId].members.includes(currentUser)) {
-                ws.send(JSON.stringify({
-                    type: "group_media",
-                    groupId: msg.groupId,
-                    media: getGroupMedia(msg.groupId)
-                }));
-            }
-            return;
-        }
-
-        // Получить файлы группы
-        if (msg.type === "get_group_files") {
-            if (groups[msg.groupId] && groups[msg.groupId].members.includes(currentUser)) {
-                ws.send(JSON.stringify({
-                    type: "group_files",
-                    groupId: msg.groupId,
-                    files: getGroupFiles(msg.groupId)
-                }));
-            }
-            return;
-        }
-
-        // Получить ссылки из группы
-        if (msg.type === "get_group_links") {
-            if (groups[msg.groupId] && groups[msg.groupId].members.includes(currentUser)) {
-                ws.send(JSON.stringify({
-                    type: "group_links",
-                    groupId: msg.groupId,
-                    links: getGroupLinks(msg.groupId)
-                }));
-            }
-            return;
-        }
-
-        // Настройки уведомлений в группе
-        if (msg.type === "set_group_notifications") {
-            if (setGroupNotificationSettings(msg.groupId, currentUser, msg.settings)) {
-                ws.send(JSON.stringify({ type: "notifications_set", groupId: msg.groupId }));
-            }
-            return;
-        }
-
-        // Получить настройки уведомлений
-        if (msg.type === "get_group_notifications") {
-            if (groups[msg.groupId] && groups[msg.groupId].members.includes(currentUser)) {
-                const settings = getGroupNotificationSettings(msg.groupId, currentUser);
-                ws.send(JSON.stringify({
-                    type: "group_notifications",
-                    groupId: msg.groupId,
-                    settings: settings
-                }));
-            }
-            return;
-        }
-
-        // Закрепить сообщение в группе
-        if (msg.type === "pin_group_message") {
-            if (pinGroupMessage(msg.groupId, msg.msgId, currentUser)) {
-                ws.send(JSON.stringify({ type: "pin_success", groupId: msg.groupId, msgId: msg.msgId }));
-            }
-            return;
-        }
-
-        // Открепить сообщение в группе
-        if (msg.type === "unpin_group_message") {
-            if (unpinGroupMessage(msg.groupId, msg.msgId, currentUser)) {
-                ws.send(JSON.stringify({ type: "unpin_success", groupId: msg.groupId, msgId: msg.msgId }));
-            }
-            return;
-        }
-
-        // Закрепить/открепить в публичном или личном чате
-        if (msg.type === "pin_message") {
-            const pin = pinMessage(msg.chatType || (msg.chatId === "public" ? "public" : "private"), msg.chatId, msg.msgId, currentUser);
-            if (pin) ws.send(JSON.stringify({ type: "pin_success", id: msg.msgId }));
-            else ws.send(JSON.stringify({ type: "error", text: "Не удалось закрепить сообщение" }));
-            return;
-        }
-
-        if (msg.type === "unpin_message") {
-            const chatType = msg.chatType || (msg.chatId === "public" ? "public" : "private");
-            if (unpinMessage(chatType, msg.chatId, msg.msgId, currentUser)) {
-                ws.send(JSON.stringify({ type: "unpin_success", id: msg.msgId }));
-            }
-            return;
-        }
-
-        // Получить закреплённые сообщения конкретного личного чата
-        if (msg.type === "get_private_pinned") {
-            ws.send(JSON.stringify({
-                type: "private_pinned_list",
-                chatId: msg.chatId,
-                messages: privatePinned[msg.chatId] || []
-            }));
-            return;
-        }
-
-        // ============================================================
-        // КАНАЛЫ
-        // ============================================================
-
         if (msg.type === "create_channel") {
             if (currentUser !== "Дима") {
                 ws.send(JSON.stringify({ type: "error", text: "Только администратор может создавать каналы" }));
@@ -2180,7 +1752,6 @@ wss.on("connection", (ws) => {
             return;
         }
 
-        // ===== КАНАЛЫ: АВАТАР / НАЗВАНИЕ / ОПИСАНИЕ =====
         if (msg.type === "update_channel_avatar") {
             if (updateChannelAvatar(msg.channelId, msg.avatar, currentUser)) {
                 ws.send(JSON.stringify({ type: "channel_avatar_updated", channelId: msg.channelId }));
@@ -2204,7 +1775,6 @@ wss.on("connection", (ws) => {
             return;
         }
 
-        // ===== КАНАЛЫ: АДМИНЫ КАНАЛА / АДМИНЫ КОММЕНТАРИЕВ (отдельно) =====
         if (msg.type === "add_channel_admin") {
             if (addChannelAdmin(msg.channelId, msg.nick, currentUser)) {
                 ws.send(JSON.stringify({ type: "channel_admin_added", channelId: msg.channelId, nick: msg.nick }));
@@ -2233,7 +1803,6 @@ wss.on("connection", (ws) => {
             return;
         }
 
-        // ===== КАНАЛЫ: КОММЕНТАРИИ К ПОСТАМ =====
         if (msg.type === "add_channel_comment") {
             if (!checkRate(ws)) {
                 ws.send(JSON.stringify({ type: "error", text: "Слишком много сообщений" }));
@@ -2254,8 +1823,220 @@ wss.on("connection", (ws) => {
         }
 
         // ============================================================
-        // СООБЩЕНИЯ В ГРУППАХ
+        // ГРУППЫ И ЧАТЫ
         // ============================================================
+        if (msg.type === "create_group") {
+            if (!msg.name || !msg.name.trim()) {
+                ws.send(JSON.stringify({ type: "error", text: "Введите название группы" }));
+                return;
+            }
+            const groupId = createGroup(msg.name, currentUser);
+            ws.send(JSON.stringify({ type: "group_created", group: groups[groupId] }));
+            broadcast({ type: "group_update", group: groups[groupId] });
+            return;
+        }
+
+        if (msg.type === "get_group_info") {
+            if (groups[msg.groupId]) {
+                ws.send(JSON.stringify({
+                    type: "group_info",
+                    groupId: msg.groupId,
+                    group: groups[msg.groupId]
+                }));
+            }
+            return;
+        }
+
+        if (msg.type === "get_group_log") {
+            if (groups[msg.groupId] && groups[msg.groupId].members.includes(currentUser)) {
+                ws.send(JSON.stringify({
+                    type: "group_log",
+                    groupId: msg.groupId,
+                    log: getGroupLog(msg.groupId)
+                }));
+            }
+            return;
+        }
+
+        if (msg.type === "add_admin") {
+            if (addAdmin(msg.groupId, msg.nick, currentUser)) {
+                ws.send(JSON.stringify({ type: "admin_added", groupId: msg.groupId, nick: msg.nick }));
+            }
+            return;
+        }
+
+        if (msg.type === "remove_admin") {
+            if (removeAdmin(msg.groupId, msg.nick, currentUser)) {
+                ws.send(JSON.stringify({ type: "admin_removed", groupId: msg.groupId, nick: msg.nick }));
+            }
+            return;
+        }
+
+        if (msg.type === "add_member") {
+            if (!nickExistsInDB(msg.nick)) {
+                ws.send(JSON.stringify({ type: "error", text: `Пользователь "${msg.nick}" не найден` }));
+                return;
+            }
+            if (addMemberByNick(msg.groupId, msg.nick, currentUser)) {
+                ws.send(JSON.stringify({ type: "member_added", groupId: msg.groupId, nick: msg.nick }));
+            } else {
+                ws.send(JSON.stringify({ type: "error", text: "Пользователь уже в группе или забанен" }));
+            }
+            return;
+        }
+
+        if (msg.type === "remove_member") {
+            if (removeFromGroup(msg.groupId, msg.nick, currentUser)) {
+                ws.send(JSON.stringify({ type: "member_removed", groupId: msg.groupId, nick: msg.nick }));
+            }
+            return;
+        }
+
+        if (msg.type === "leave_group") {
+            if (leaveGroup(msg.groupId, currentUser)) {
+                ws.send(JSON.stringify({ type: "left_group", groupId: msg.groupId }));
+            } else {
+                ws.send(JSON.stringify({ type: "error", text: "Создатель не может выйти, только удалить группу" }));
+            }
+            return;
+        }
+
+        if (msg.type === "delete_group") {
+            if (deleteGroup(msg.groupId, currentUser)) {
+                ws.send(JSON.stringify({ type: "group_deleted", groupId: msg.groupId }));
+            }
+            return;
+        }
+
+        if (msg.type === "update_group_settings") {
+            if (updateGroupSettings(msg.groupId, msg.settings, currentUser)) {
+                ws.send(JSON.stringify({ type: "settings_updated", groupId: msg.groupId }));
+            }
+            return;
+        }
+
+        if (msg.type === "update_group_name") {
+            if (updateGroupName(msg.groupId, msg.newName, currentUser)) {
+                ws.send(JSON.stringify({ type: "group_name_updated", groupId: msg.groupId }));
+            } else {
+                ws.send(JSON.stringify({ type: "error", text: "Не удалось изменить название группы" }));
+            }
+            return;
+        }
+
+        if (msg.type === "get_invite_link") {
+            if (groups[msg.groupId] && groups[msg.groupId].members.includes(currentUser)) {
+                const link = getInviteLink(msg.groupId);
+                ws.send(JSON.stringify({ type: "invite_link", groupId: msg.groupId, link }));
+            }
+            return;
+        }
+
+        if (msg.type === "join_by_link") {
+            if (joinByInviteLink(msg.groupId, msg.token, currentUser)) {
+                ws.send(JSON.stringify({ type: "joined_by_link", groupId: msg.groupId }));
+                broadcast({ type: "group_update", group: groups[msg.groupId] });
+            } else {
+                ws.send(JSON.stringify({ type: "error", text: "Неверная ссылка или вы уже в группе" }));
+            }
+            return;
+        }
+
+        if (msg.type === "update_group_avatar") {
+            if (updateGroupAvatar(msg.groupId, msg.avatar, currentUser)) {
+                ws.send(JSON.stringify({ type: "group_avatar_updated", groupId: msg.groupId, avatar: msg.avatar }));
+            }
+            return;
+        }
+
+        if (msg.type === "update_group_description") {
+            if (updateGroupDescription(msg.groupId, msg.description, currentUser)) {
+                ws.send(JSON.stringify({ type: "group_description_updated", groupId: msg.groupId }));
+            }
+            return;
+        }
+
+        if (msg.type === "search_group_messages") {
+            if (groups[msg.groupId] && groups[msg.groupId].members.includes(currentUser)) {
+                const results = searchGroupMessages(msg.groupId, msg.query);
+                ws.send(JSON.stringify({ type: "search_results", results, groupId: msg.groupId }));
+            }
+            return;
+        }
+
+        if (msg.type === "get_group_media") {
+            if (groups[msg.groupId] && groups[msg.groupId].members.includes(currentUser)) {
+                ws.send(JSON.stringify({ type: "group_media", groupId: msg.groupId, media: getGroupMedia(msg.groupId) }));
+            }
+            return;
+        }
+
+        if (msg.type === "get_group_files") {
+            if (groups[msg.groupId] && groups[msg.groupId].members.includes(currentUser)) {
+                ws.send(JSON.stringify({ type: "group_files", groupId: msg.groupId, files: getGroupFiles(msg.groupId) }));
+            }
+            return;
+        }
+
+        if (msg.type === "get_group_links") {
+            if (groups[msg.groupId] && groups[msg.groupId].members.includes(currentUser)) {
+                ws.send(JSON.stringify({ type: "group_links", groupId: msg.groupId, links: getGroupLinks(msg.groupId) }));
+            }
+            return;
+        }
+
+        if (msg.type === "set_group_notifications") {
+            if (setGroupNotificationSettings(msg.groupId, currentUser, msg.settings)) {
+                ws.send(JSON.stringify({ type: "notifications_set", groupId: msg.groupId }));
+            }
+            return;
+        }
+
+        if (msg.type === "get_group_notifications") {
+            if (groups[msg.groupId] && groups[msg.groupId].members.includes(currentUser)) {
+                const settings = getGroupNotificationSettings(msg.groupId, currentUser);
+                ws.send(JSON.stringify({ type: "group_notifications", groupId: msg.groupId, settings }));
+            }
+            return;
+        }
+
+        if (msg.type === "pin_group_message") {
+            if (pinGroupMessage(msg.groupId, msg.msgId, currentUser)) {
+                ws.send(JSON.stringify({ type: "pin_success", groupId: msg.groupId, msgId: msg.msgId }));
+            }
+            return;
+        }
+
+        if (msg.type === "unpin_group_message") {
+            if (unpinGroupMessage(msg.groupId, msg.msgId, currentUser)) {
+                ws.send(JSON.stringify({ type: "unpin_success", groupId: msg.groupId, msgId: msg.msgId }));
+            }
+            return;
+        }
+
+        if (msg.type === "pin_message") {
+            const pin = pinMessage(msg.chatType || (msg.chatId === "public" ? "public" : "private"), msg.chatId, msg.msgId, currentUser);
+            if (pin) ws.send(JSON.stringify({ type: "pin_success", id: msg.msgId }));
+            else ws.send(JSON.stringify({ type: "error", text: "Не удалось закрепить сообщение" }));
+            return;
+        }
+
+        if (msg.type === "unpin_message") {
+            const chatType = msg.chatType || (msg.chatId === "public" ? "public" : "private");
+            if (unpinMessage(chatType, msg.chatId, msg.msgId, currentUser)) {
+                ws.send(JSON.stringify({ type: "unpin_success", id: msg.msgId }));
+            }
+            return;
+        }
+
+        if (msg.type === "get_private_pinned") {
+            ws.send(JSON.stringify({
+                type: "private_pinned_list",
+                chatId: msg.chatId,
+                messages: privatePinned[msg.chatId] || []
+            }));
+            return;
+        }
 
         if (msg.type === "group_chat") {
             if (!checkRate(ws)) {
@@ -2285,10 +2066,6 @@ wss.on("connection", (ws) => {
             return;
         }
 
-        // ============================================================
-        // ОПРОСЫ В ГРУППАХ
-        // ============================================================
-
         if (msg.type === "create_poll") {
             if (addPollToGroup(msg.groupId, { question: msg.question, options: msg.options }, currentUser)) {
                 ws.send(JSON.stringify({ type: "poll_created", groupId: msg.groupId }));
@@ -2302,10 +2079,6 @@ wss.on("connection", (ws) => {
             }
             return;
         }
-
-        // ============================================================
-        // ПУБЛИЧНЫЙ ЧАТ
-        // ============================================================
 
         if (msg.type === "chat") {
             if (!checkRate(ws)) {
@@ -2344,10 +2117,6 @@ wss.on("connection", (ws) => {
             savePublic();
             return;
         }
-
-        // ============================================================
-        // ЛИЧНЫЙ ЧАТ
-        // ============================================================
 
         if (msg.type === "private_chat") {
             if (!checkRate(ws)) {
@@ -2399,10 +2168,6 @@ wss.on("connection", (ws) => {
             return;
         }
 
-        // ============================================================
-        // РЕДАКТИРОВАНИЕ И УДАЛЕНИЕ
-        // ============================================================
-
         if (msg.type === "edit") {
             if (editMessage(msg.chatType, msg.chatId, msg.id, msg.text, currentUser)) {
                 ws.send(JSON.stringify({ type: "edit_success", id: msg.id }));
@@ -2416,10 +2181,6 @@ wss.on("connection", (ws) => {
             }
             return;
         }
-
-        // ============================================================
-        // ПЛАНИРОВЩИК
-        // ============================================================
 
         if (msg.type === "schedule_message") {
             if (!msg.text || !msg.scheduledTime) {
@@ -2435,10 +2196,6 @@ wss.on("connection", (ws) => {
             return;
         }
 
-        // ============================================================
-        // ПЕРЕВОД
-        // ============================================================
-
         if (msg.type === "translate") {
             const translated = translateText(msg.text, msg.targetLang || "ru");
             ws.send(JSON.stringify({
@@ -2450,10 +2207,6 @@ wss.on("connection", (ws) => {
             return;
         }
 
-        // ============================================================
-        // ПРОЧИТАНО И РЕАКЦИИ
-        // ============================================================
-
         if (msg.type === "mark_read") {
             markAsRead(msg.chatType, msg.chatId, msg.msgId, currentUser);
             return;
@@ -2463,10 +2216,6 @@ wss.on("connection", (ws) => {
             updateReaction(msg.chatType, msg.id, currentUser, msg.reaction, msg.remove);
             return;
         }
-
-        // ============================================================
-        // ПЕЧАТАЕТ
-        // ============================================================
 
         if (msg.type === "typing") {
             let targetWs = null;
@@ -2483,10 +2232,6 @@ wss.on("connection", (ws) => {
             }
             return;
         }
-
-        // ============================================================
-        // ИСТОРИЯ
-        // ============================================================
 
         if (msg.type === "get_private_history") {
             const key = getPrivateKey(currentUser, msg.with);
@@ -2513,10 +2258,6 @@ wss.on("connection", (ws) => {
             }));
             return;
         }
-
-        // ============================================================
-        // ЗАГРУЗКА ФАЙЛОВ
-        // ============================================================
 
         if (msg.type === "upload_file") {
             handleUpload(ws, msg, "files", "file_uploaded");
@@ -2566,21 +2307,8 @@ wss.on("connection", (ws) => {
         }
 
         // ============================================================
-        // WEBRTC ЗВОНКИ (личные и групповые — mesh со стороны клиента)
+        // WEBRTC ЗВОНКИ
         // ============================================================
-        //
-        // Клиент присылает сюда: offer / answer / ice — для установления
-        // и обмена медиапотоками, а также hangup / call_busy / call_reject
-        // для корректного завершения звонка на обеих сторонах (иначе
-        // собеседник "зависает" в режиме дозвона, если вторая сторона
-        // не ответила, отклонила или уже говорит по другому звонку).
-        //
-        // Все эти типы — это просто сигналинг: сервер ничего не решает
-        // сам, только пересылает сообщение конкретному пользователю
-        // (msg.to), сохраняя from = тот, кто прислал сообщение.
-        // Сам голос/видео идёт напрямую между браузерами (P2P) либо
-        // через TURN-сервер, если он настроен на клиенте.
-
         if (
             msg.type === "offer" ||
             msg.type === "answer" ||
@@ -2605,8 +2333,6 @@ wss.on("connection", (ws) => {
                     groupId: msg.groupId || null
                 }));
             } else {
-                // Собеседник не в сети / отключился — сообщаем звонящему сразу,
-                // чтобы интерфейс не завис в состоянии "дозвон"
                 if (msg.type === "offer") {
                     ws.send(JSON.stringify({ type: "call_busy", from: msg.to }));
                 }
@@ -2614,15 +2340,6 @@ wss.on("connection", (ws) => {
             return;
         }
 
-        // ============================================================
-        // ГЛОБАЛЬНЫЙ ПОИСК ПО ТЕКСТУ СООБЩЕНИЙ (во всех своих чатах разом)
-        // ============================================================
-        // ============================================================
-        // ПОИСК ПОЛЬЗОВАТЕЛЯ ПО НИКУ
-        // ============================================================
-        // Обычные пользователи НЕ видят список всех подряд — только точное
-        // совпадение ника (нельзя "подобрать" чужие ники подсказками).
-        // Дима — единственный, кто видит полный список и поиск по вхождению.
         if (msg.type === "search_user") {
             const q = (msg.query || "").trim();
             if (!q) { ws.send(JSON.stringify({ type: "search_user_result", results: [] })); return; }
@@ -2688,9 +2405,6 @@ wss.on("connection", (ws) => {
             return;
         }
 
-        // БЛОКИРОВКА
-        // ============================================================
-
         if (msg.type === "block_user") {
             if (!userBlocks.has(currentUser)) userBlocks.set(currentUser, []);
             if (!userBlocks.get(currentUser).includes(msg.target)) {
@@ -2715,10 +2429,6 @@ wss.on("connection", (ws) => {
             return;
         }
 
-        // ============================================================
-        // РЕПУТАЦИЯ
-        // ============================================================
-
         if (msg.type === "change_reputation") {
             if (currentUser !== "Дима") {
                 ws.send(JSON.stringify({ type: "error", text: "Только администратор" }));
@@ -2736,8 +2446,6 @@ wss.on("connection", (ws) => {
 
     ws.on("close", () => {
         if (ws.nick) {
-            // Если пользователь был в звонке, уведомляем всех, кому он мог
-            // звонить/отвечать — иначе собеседник останется висеть в звонке
             broadcast({ type: "hangup", from: ws.nick, disconnected: true });
             usersOnline.delete(ws);
             userStatus.set(ws.nick, { status: "offline", lastSeen: Date.now() });
@@ -2748,10 +2456,6 @@ wss.on("connection", (ws) => {
     });
 });
 
-// ============================================================
-// ПИНГИ
-// ============================================================
-
 setInterval(() => {
     wss.clients.forEach(ws => {
         if (!ws.isAlive) return ws.terminate();
@@ -2760,19 +2464,8 @@ setInterval(() => {
     });
 }, 30000);
 
-// ============================================================
-// ЗАПУСК
-// ============================================================
-
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
     console.log(`✅ Сервер запущен на порту ${PORT}`);
     console.log(`   http://localhost:${PORT}`);
-    console.log(`📊 Статистика:`);
-    console.log(`   - Пользователей: ${Object.keys(usersDB).length}`);
-    console.log(`   - Сообщений: ${history.length}`);
-    console.log(`   - Групп: ${Object.keys(groups).length}`);
-    console.log(`   - Каналов: ${Object.keys(channels).length}`);
-    console.log(`   - Закреплённых: ${pinnedMessages.length}`);
-    console.log(`   - Запланированных: ${scheduledMessages.length}`);
 });
